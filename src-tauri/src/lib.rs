@@ -17,6 +17,8 @@
 //! * `wifiprofile` – WLAN-Profil: Eingaben prüfen, XML bauen (ohne Windows-API, getestet)
 //! * `traffic`  – Live-Traffic aus den Adapter-Zählern (GetIfTable2)
 //! * `connections` – TCP/UDP-Verbindungen mit Prozess (wie netstat -ano)
+//! * `ipprofile` – IP-Profile (netsh) mit Sicherheitsnetz (30 s „Behalten“)
+//! * `winreg`   – kleine Registry-Helfer (nur Windows)
 
 mod actions;
 mod adapters;
@@ -24,6 +26,7 @@ mod config;
 mod connections;
 mod dns;
 mod icmp;
+mod ipprofile;
 mod lan;
 mod monitor;
 mod porttest;
@@ -34,6 +37,8 @@ mod traffic;
 mod wifi;
 mod wifiprofile;
 mod wol;
+#[cfg(windows)]
+mod winreg;
 
 use tauri::{Manager, RunEvent};
 
@@ -169,6 +174,7 @@ pub fn run() {
         .manage(monitor::Monitor::default())
         .manage(lan::LanScanner::default())
         .manage(traffic::Traffic::default())
+        .manage(ipprofile::IpGuard::default())
         .invoke_handler(tauri::generate_handler![
             get_adapters,
             dns_query,
@@ -205,6 +211,10 @@ pub fn run() {
             traffic::traffic_reset,
             get_connections,
             reverse_dns,
+            ipprofile::ip_profile_preview,
+            ipprofile::ip_profile_apply,
+            ipprofile::ip_profile_keep,
+            ipprofile::ip_profile_revert,
         ])
         .build(tauri::generate_context!())
         .expect("Net-Conf konnte nicht gestartet werden");
@@ -212,6 +222,8 @@ pub fn run() {
     app.run(|app_handle, event| {
         // Beim Beenden alle Kindprozesse und Hintergrund-Threads stoppen.
         if let RunEvent::Exit = event {
+            // Offene IP-Änderung ohne „Behalten“ zuerst zurücknehmen (wartet darauf)
+            app_handle.state::<ipprofile::IpGuard>().revert_and_wait();
             app_handle.state::<runner::Runner>().kill_all();
             app_handle.state::<monitor::Monitor>().stop();
             app_handle.state::<lan::LanScanner>().cancel_all();
