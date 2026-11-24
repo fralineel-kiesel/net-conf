@@ -51,12 +51,28 @@ pub fn list_adapters() -> Result<Vec<AdapterInfo>, String> {
     imp::list_adapters()
 }
 
+/// Name und Interface-Metriken eines Netzwerk-Interfaces (für ARP/Routen).
+/// (Wird nur unter Windows benutzt – daher dort keine Warnung.)
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug, Clone)]
+pub struct InterfaceRef {
+    pub name: String,
+    pub ipv4_metric: u32,
+    pub ipv6_metric: u32,
+}
+
+/// Interface-Index → Name/Metrik. Enthält auch Loopback und getrennte Adapter.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn interface_map() -> std::collections::HashMap<u32, InterfaceRef> {
+    imp::interface_map()
+}
+
 // ---------------------------------------------------------------------------
 // Windows-Implementierung
 // ---------------------------------------------------------------------------
 #[cfg(windows)]
 mod imp {
-    use super::{AdapterInfo, Ipv4Entry};
+    use super::{AdapterInfo, InterfaceRef, Ipv4Entry};
     use std::collections::HashMap;
     use std::ffi::CStr;
     use std::net::{Ipv4Addr, Ipv6Addr};
@@ -106,6 +122,35 @@ mod imp {
                 .then_with(|| x.name.to_lowercase().cmp(&y.name.to_lowercase()))
         });
         Ok(result)
+    }
+
+    pub fn interface_map() -> HashMap<u32, InterfaceRef> {
+        let mut map = HashMap::new();
+        let Ok(Some(buf)) = call_get_adapters_addresses() else {
+            return map;
+        };
+        // SAFETY: wie in list_adapters – verkettete Liste im Puffer, nur lesend.
+        unsafe {
+            let mut cur = buf.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+            while !cur.is_null() {
+                let a = &*cur;
+                let info = InterfaceRef {
+                    name: pwstr_to_string(a.FriendlyName),
+                    ipv4_metric: a.Ipv4Metric,
+                    ipv6_metric: a.Ipv6Metric,
+                };
+                // IPv4- und IPv6-Index sind meist gleich, aber nicht immer.
+                let idx4 = a.Anonymous1.Anonymous.IfIndex;
+                if idx4 != 0 {
+                    map.insert(idx4, info.clone());
+                }
+                if a.Ipv6IfIndex != 0 {
+                    map.entry(a.Ipv6IfIndex).or_insert(info);
+                }
+                cur = a.Next;
+            }
+        }
+        map
     }
 
     /// Ruft GetAdaptersAddresses auf. Die Funktion verlangt einen Puffer,
@@ -329,7 +374,12 @@ mod imp {
 // ---------------------------------------------------------------------------
 #[cfg(not(windows))]
 mod imp {
-    use super::{AdapterInfo, Ipv4Entry};
+    use super::{AdapterInfo, InterfaceRef, Ipv4Entry};
+
+    #[allow(dead_code)]
+    pub fn interface_map() -> std::collections::HashMap<u32, InterfaceRef> {
+        std::collections::HashMap::new()
+    }
 
     pub fn list_adapters() -> Result<Vec<AdapterInfo>, String> {
         Ok(vec![AdapterInfo {
