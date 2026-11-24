@@ -124,7 +124,9 @@ export function createLatencyGraph(opts: GraphOptions = {}): LatencyGraph {
         if (nullMark === "none") return;
         lost++;
         ctx.fillStyle = color("--err");
-        ctx.font = `${(mini ? 11 : 13) * dpr}px ${color("--font") || "monospace"}`;
+        // Schriftgrösse folgt der Einstellung (Standard 13 px, Mini-Graph etwas kleiner)
+        const fs = parseFloat(css.fontSize) || 13;
+        ctx.font = `${(mini ? (fs * 11) / 13 : fs) * dpr}px ${color("--font") || "monospace"}`;
         ctx.textBaseline = "bottom";
         ctx.textAlign = "center";
         ctx.fillText("×", (x0 + x1) / 2, hgt);

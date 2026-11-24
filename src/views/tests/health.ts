@@ -7,9 +7,9 @@ import { copyText, h, replaceChildren } from "../../ui/dom";
 import { status } from "../../ui/statusbar";
 import { kvRow, panel, prompt, tag, tbutton } from "../../ui/widgets";
 
-const TAG_KIND: Record<StageStatus, "ok" | "err" | "dim" | "plain"> = {
+const TAG_KIND: Record<StageStatus, "ok" | "err" | "warn" | "dim" | "plain"> = {
   ok: "ok",
-  warn: "plain",
+  warn: "warn",
   fail: "err",
   skip: "dim",
   pending: "dim",
@@ -52,7 +52,7 @@ export function createHealth(): HTMLElement {
         h(
           "span",
           { class: "health-line" },
-          h("span", { class: `health-tag ${s.status === "warn" ? "bright" : ""}` }, tag(statusLabel(s.status), TAG_KIND[s.status])),
+          h("span", { class: "health-tag" }, tag(statusLabel(s.status), TAG_KIND[s.status])),
           s.value ? h("span", { class: s.status === "pending" ? "dim" : "" }, s.value) : null,
           // Übersprungen: Grund direkt in der Zeile statt darunter
           !s.value && s.hint ? h("span", { class: "dim" }, s.hint) : null,

@@ -6,7 +6,8 @@ import { onStateChange, refreshAll, state } from "./state";
 import { createConsole } from "./ui/console";
 import { copyText, h, logo, prefs } from "./ui/dom";
 import { dialogOpen } from "./ui/modal";
-import { applySettings, settings, type ViewId } from "./settings";
+import { applySettings, FONT_DEFAULT, setFontSize, settings, type ViewId } from "./settings";
+import { initUpdates } from "./ui/updates";
 import { createStatusbar, status } from "./ui/statusbar";
 import { tag, tbutton } from "./ui/widgets";
 import { nav } from "./nav";
@@ -167,6 +168,31 @@ function main(): void {
     true,
   );
 
+  // Schriftgrösse: Strg + / Strg − / Strg 0 (wie im Browser, aber über die App-Einstellung –
+  // das Zoomen des WebViews wird verhindert, sonst würden Canvas-Graphen unscharf).
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      let next: number | null = null;
+      if (e.key === "+" || e.key === "=" || e.code === "NumpadAdd") next = settings.fontSize + 1;
+      else if (e.key === "-" || e.code === "NumpadSubtract") next = settings.fontSize - 1;
+      else if (e.key === "0" || e.code === "Numpad0") next = FONT_DEFAULT;
+      if (next === null) return;
+      e.preventDefault();
+      status(`Schriftgrösse: ${setFontSize(next)} px`, "ok");
+    },
+    true,
+  );
+  // Strg + Mausrad würde den WebView zoomen
+  document.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.ctrlKey) e.preventDefault();
+    },
+    { passive: false },
+  );
+
   // In der fertigen App das Browser-Kontextmenü (Zurück/Neu laden/Untersuchen)
   // ausblenden – ausser in Eingabefeldern und der Konsole (Kopieren).
   if (isTauri && import.meta.env.PROD) {
@@ -180,6 +206,7 @@ function main(): void {
     // config.json (Monitor-Ziele, WoL-Geräte) laden – ein Hinweis (z. B. kaputte Datei) kommt in die Statusleiste
     const [notice] = await Promise.all([loadConfig(), refreshAll()]);
     if (notice) status(notice, "error");
+    initUpdates(); // gemerkten Update-Hinweis zeigen, ggf. still prüfen (max. 1× pro 24 h)
   });
 }
 
