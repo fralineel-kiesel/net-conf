@@ -1,6 +1,7 @@
 // Einstiegspunkt: baut das Layout auf und verbindet alles.
 import "./styles.css";
 import { initBackend, isTauri } from "./api";
+import { loadConfig } from "./config";
 import { onStateChange, refreshAll, state } from "./state";
 import { createConsole } from "./ui/console";
 import { copyText, h, logo, prefs } from "./ui/dom";
@@ -144,7 +145,11 @@ function main(): void {
     });
   }
 
-  void initBackend().then(refreshAll);
+  void initBackend().then(async () => {
+    // config.json (Monitor-Ziele, WoL-Geräte) laden – ein Hinweis (z. B. kaputte Datei) kommt in die Statusleiste
+    const [notice] = await Promise.all([loadConfig(), refreshAll()]);
+    if (notice) status(notice, "error");
+  });
 }
 
 main();

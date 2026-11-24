@@ -9,10 +9,9 @@
 // * Neueste Messung rechts, der Graph läuft nach links durch.
 // * Keine Antwort: "×" in Fehlerfarbe auf der Grundlinie (nicht Höhe 0).
 // * Es werden so viele Messungen gezeigt, wie in die Breite passen.
+// * Mini-Variante (`mini: true`) für den Ping-Monitor: 1 Zeile = 8 Stufen,
+//   Skala nur als kurzer Text rechts ("50 ms").
 import { h } from "./dom";
-
-const ROWS = 3;
-const LEVELS = ROWS * 8;
 
 export interface LatencyGraph {
   el: HTMLElement;
@@ -22,12 +21,21 @@ export interface LatencyGraph {
   render(history: (number | null)[], scaleMax: number): void;
 }
 
-export function createLatencyGraph(): LatencyGraph {
+export function createLatencyGraph(opts: { mini?: boolean } = {}): LatencyGraph {
+  const mini = opts.mini === true;
+  const LEVELS = (mini ? 1 : 3) * 8;
   const canvas = h("canvas", { class: "lgraph-canvas", "aria-hidden": "true" });
   const scaleLabel = h("div", {}, "");
   const lostLabel = h("div", { class: "dim" }, "");
-  const axis = h("div", { class: "lgraph-axis" }, scaleLabel, h("div", {}, " "), lostLabel);
-  const el = h("div", { class: "lgraph", role: "img", "aria-label": "Latenzverlauf" }, canvas, axis);
+  const axis = mini
+    ? h("div", { class: "lgraph-axis dim" }, scaleLabel)
+    : h("div", { class: "lgraph-axis" }, scaleLabel, h("div", {}, " "), lostLabel);
+  const el = h(
+    "div",
+    { class: mini ? "lgraph lgraph-mini" : "lgraph", role: "img", "aria-label": "Latenzverlauf" },
+    canvas,
+    axis,
+  );
 
   // Breite eines Zeichens messen (Monospace) – daraus ergibt sich die Spaltenbreite.
   let colW = 8;
@@ -53,7 +61,7 @@ export function createLatencyGraph(): LatencyGraph {
     last = { history, scaleMax };
     const cssW = canvas.clientWidth;
     const cssH = canvas.clientHeight;
-    scaleLabel.textContent = `Skala 0-${scaleMax} ms`;
+    scaleLabel.textContent = mini ? `${String(scaleMax).padStart(4)} ms` : `Skala 0-${scaleMax} ms`;
     if (cssW === 0 || cssH === 0) return; // unsichtbar (anderer Reiter)
 
     // Für scharfe Kanten in Gerätepixeln zeichnen
@@ -87,7 +95,7 @@ export function createLatencyGraph(): LatencyGraph {
       if (v === null) {
         lost++;
         ctx.fillStyle = color("--err");
-        ctx.font = `${13 * dpr}px ${color("--font") || "monospace"}`;
+        ctx.font = `${(mini ? 11 : 13) * dpr}px ${color("--font") || "monospace"}`;
         ctx.textBaseline = "bottom";
         ctx.textAlign = "center";
         ctx.fillText("×", (x0 + x1) / 2, hgt);

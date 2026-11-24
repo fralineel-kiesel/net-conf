@@ -1,5 +1,6 @@
 // Globaler App-Zustand – bewusst simpel: ein Objekt + Änderungs-Listener.
 import { backend } from "./api";
+import { primaryOf } from "./netutil";
 import { prefs } from "./ui/dom";
 import type { AdapterInfo, WifiInfo } from "./types";
 
@@ -65,10 +66,7 @@ const byName = (x: AdapterInfo, y: AdapterInfo) =>
  * Neuladen gleich (die echte Routen-Metrik kennt die Adapterliste nicht).
  */
 export function primaryAdapter(): AdapterInfo | undefined {
-  const connected = state.adapters.filter((a) => a.connected).sort(byName);
-  return (
-    connected.find((a) => a.gateways.some((g) => g.includes("."))) ?? connected.find((a) => a.gateways.length > 0)
-  );
+  return primaryOf(state.adapters);
 }
 
 /**
