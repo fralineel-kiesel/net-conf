@@ -1,10 +1,10 @@
 // Gespeicherte Daten aus config.json (%APPDATA%\Net-Conf, siehe config.rs):
-// Monitor-Ziele und WoL-Geräte. Das Frontend hält eine Kopie; jede Änderung
+// Monitor-Ziele, WoL-Geräte, IP-Profile und „in den Tray minimieren“. Das Frontend hält eine Kopie; jede Änderung
 // geht ans Backend, das prüft, normalisiert (z. B. MAC "AA-BB-…") und atomar speichert.
 import { backend, errorText } from "./api";
 import type { AppConfig } from "./types";
 
-let current: AppConfig = { version: 1, monitorTargets: [], monitorIntervalSec: 2, wolDevices: [] };
+let current: AppConfig = { version: 1, monitorTargets: [], monitorIntervalSec: 2, wolDevices: [], ipProfiles: [], closeToTray: false };
 let path = "";
 const listeners = new Set<() => void>();
 

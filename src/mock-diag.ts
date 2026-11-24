@@ -25,6 +25,7 @@ import {
   type WolResult,
 } from "./types";
 import { validateTarget } from "./validate";
+import { checkProfile, MAX_PROFILES, normalizeSubnet } from "./ipprofile";
 
 export const scenario = new URLSearchParams(location.search).get("net") ?? "";
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -97,12 +98,20 @@ const DEFAULT_CONFIG: AppConfig = {
     { name: "NAS Keller", mac: NAS_MAC, ip: NAS_IP, note: "Synology, WoL im BIOS aktiv" },
     { name: "Gaming-PC", mac: "2C-F0-5D-AA-BB-CC", ip: null, note: "" },
   ],
+  ipProfiles: [
+    { name: "Zuhause (DHCP)", adapter: "WLAN", mac: "A4-C3-F0-12-34-56", mode: "dhcp", ipv4: "", subnet: "", gateway: "", dns1: "", dns2: "" },
+    { name: "Labor statisch", adapter: "WLAN", mac: "A4-C3-F0-12-34-56", mode: "static", ipv4: "192.168.1.50", subnet: "255.255.255.0", gateway: "192.168.1.1", dns1: "1.1.1.1", dns2: "8.8.8.8" },
+    { name: "Switch-Konfig", adapter: "Ethernet", mac: "D8-BB-C1-98-76-54", mode: "static", ipv4: "192.168.0.10", subnet: "255.255.255.0", gateway: "", dns1: "", dns2: "" },
+  ],
+  closeToTray: false,
 };
 
 export async function loadConfig(): Promise<ConfigLoadResult> {
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
-    return { config: raw ? (JSON.parse(raw) as AppConfig) : structuredClone(DEFAULT_CONFIG), notice: null, path: "localStorage (Mock)" };
+    // Ältere Mock-Daten ohne die neuen Felder mit Standardwerten auffüllen (wie serde "default")
+    const cfg = raw ? { ...structuredClone(DEFAULT_CONFIG), ...(JSON.parse(raw) as Partial<AppConfig>) } : structuredClone(DEFAULT_CONFIG);
+    return { config: cfg, notice: null, path: "localStorage (Mock)" };
   } catch {
     return { config: structuredClone(DEFAULT_CONFIG), notice: "config.json war beschädigt – Standardwerte aktiv. (Mock)", path: "localStorage (Mock)" };
   }
@@ -130,7 +139,26 @@ export async function saveConfig(cfg: AppConfig): Promise<AppConfig> {
       if (d.note.trim().length > 120) throw "Die Notiz ist zu lang (max. 120 Zeichen).";
       return { name: d.name.trim(), mac, ip, note: d.note.trim() };
     }),
+    ipProfiles: cfg.ipProfiles.map((p, i) => {
+      const err = checkProfile(p);
+      if (err) throw err;
+      if (cfg.ipProfiles.slice(0, i).some((q) => q.name.trim().toLowerCase() === p.name.trim().toLowerCase())) {
+        throw `Es gibt schon ein IP-Profil „${p.name.trim()}“.`;
+      }
+      const dhcp = p.mode === "dhcp";
+      return {
+        ...p,
+        name: p.name.trim(),
+        ipv4: dhcp ? "" : p.ipv4.trim(),
+        subnet: dhcp ? "" : normalizeSubnet(p.subnet),
+        gateway: dhcp ? "" : p.gateway.trim(),
+        dns1: p.dns1.trim(),
+        dns2: p.dns2.trim(),
+      };
+    }),
+    closeToTray: cfg.closeToTray === true,
   };
+  if (clean.ipProfiles.length > MAX_PROFILES) throw `Höchstens ${MAX_PROFILES} IP-Profile.`;
   await delay(30);
   try {
     localStorage.setItem(CONFIG_KEY, JSON.stringify(clean));

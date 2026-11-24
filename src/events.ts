@@ -2,6 +2,7 @@
 // Mock-Daten im Browser landen hier – der Rest der App merkt keinen Unterschied.
 import type {
   FinishedEvent,
+  IpProfileEvent,
   LanFinishedEvent,
   LanHostEvent,
   LanProgressEvent,
@@ -37,4 +38,7 @@ export const events = {
   lanHost: new Emitter<LanHostEvent>(),
   lanProgress: new Emitter<LanProgressEvent>(),
   lanFinished: new Emitter<LanFinishedEvent>(),
+  // Phase 4c: Sicherheitsnetz der IP-Profile, Kompaktmodus (Tray/Button)
+  ipProfile: new Emitter<IpProfileEvent>(),
+  compact: new Emitter<boolean>(),
 };

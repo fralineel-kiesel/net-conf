@@ -1012,3 +1012,32 @@ p {
 .cell-lines > .ellipsis {
   max-width: 100%;
 }
+
+/* ---------- Phase 4c: Werkzeuge, Befehlspalette, Kompaktmodus -------------- */
+
+/* Binärdarstellung: nie umbrechen (32 Bit + Punkte) */
+.bin {
+  white-space: pre;
+}
+.tinput-tiny {
+  width: 8ch;
+}
+/* Buttonreihe darf umbrechen (schmale Fenster) */
+.wrap-actions {
+  flex-wrap: wrap;
+  white-space: normal;
+  row-gap: 4px;
+}
+.panel-actions.row-actions {
+  display: flex;
+  gap: 1ch 2ch;
+}
+.tinput:disabled {
+  color: var(--dim);
+  border-bottom-style: dotted;
+}
+/* Dialogtexte dürfen Zeilenumbrüche enthalten (Zusammenfassung alt → neu) */
+.dialog p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

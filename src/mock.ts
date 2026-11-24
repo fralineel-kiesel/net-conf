@@ -7,6 +7,8 @@
 //   ?net=…       Netzwerk-Szenarien für den Health-Check (siehe mock-diag.ts)
 //   ?wifi=…      WLAN-Randfälle: none | multi | location (siehe mock-wifi.ts)
 //   ?conns=many  1200 Verbindungen (Grenze von 500 Zeilen testen)
+//   ?update=…    Update-Check: new | none | private | offline | ratelimit (siehe mock-tools.ts)
+//   ?fail=address  IP-Profil anwenden scheitert → sofortige Wiederherstellung
 import { actionById, type ActionStep } from "./actions";
 import { events } from "./events";
 import { validateTarget } from "./validate";
@@ -29,7 +31,8 @@ const params = new URLSearchParams(location.search);
 let admin = params.get("admin") === "1";
 const failPattern = params.get("fail");
 
-const ADAPTERS: AdapterInfo[] = [
+/** Adapter des Mocks – mock-tools.ts ändert sie beim Anwenden von IP-Profilen. */
+export const ADAPTERS: AdapterInfo[] = [
   {
     id: "{A1B2C3D4-0001}",
     name: "WLAN",
@@ -527,3 +530,4 @@ export * from "./mock-diag";
 
 // ---- Phase 4b: WLAN-Status (auch Übersicht), WLAN-Seite, Traffic, Verbindungen ----
 export * from "./mock-wifi";
+export * from "./mock-tools";

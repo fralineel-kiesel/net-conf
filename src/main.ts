@@ -16,6 +16,7 @@ import { createOverview } from "./views/overview";
 import { createSettings } from "./views/settings";
 import { createTables } from "./views/tables";
 import { createTests } from "./views/tests";
+import { createTools } from "./views/tools";
 import { createTraffic } from "./views/traffic";
 import { createWifi } from "./views/wifi";
 
@@ -27,7 +28,7 @@ const NAV: { id: ViewId; label: string; key: string }[] = [
   { id: "lan", label: "LAN", key: "F6" },
   { id: "wifi", label: "WLAN", key: "F7" },
   { id: "traffic", label: "Traffic", key: "F8" },
-  // F9 Werkzeuge ist für später reserviert (siehe CLAUDE.md)
+  { id: "tools", label: "Werkzeuge", key: "F9" },
   { id: "settings", label: "Einstellungen", key: "F10" },
 ];
 
@@ -78,6 +79,7 @@ function main(): void {
   const lan = createLan();
   const wifi = createWifi();
   const traffic = createTraffic();
+  const tools = createTools();
   const views: Record<ViewId, HTMLElement> = {
     overview: createOverview(),
     actions: createActions(),
@@ -86,6 +88,7 @@ function main(): void {
     lan: lan.el,
     wifi: wifi.el,
     traffic: traffic.el,
+    tools: tools.el,
     settings: createSettings(),
   };
   // Seiten mit Timern: activate() beim Öffnen, deactivate() beim Verlassen –
@@ -144,8 +147,8 @@ function main(): void {
   const saved = (settings.startView === "last" ? prefs.get("view", "overview") : settings.startView) as ViewId;
   show(saved in views ? saved : "overview");
 
-  // Tastenkürzel: F1–F4, F6–F8 und F10 wechseln den Bereich, F5 lädt neu.
-  // F3 in "Tests" springt zum nächsten Reiter (Ping → … → Monitor), F6 in "LAN" und F8 in "Traffic" ebenso.
+  // Tastenkürzel: F1–F4, F6–F10 wechseln den Bereich, F5 lädt neu.
+  // F3 in "Tests" springt zum nächsten Reiter (Ping → … → Monitor), F6 in "LAN", F8 in "Traffic" und F9 in "Werkzeuge" ebenso.
   // preventDefault, damit WebView2 nicht die Seite neu lädt (F5) oder Hilfe öffnet (F1).
   document.addEventListener(
     "keydown",
@@ -157,6 +160,7 @@ function main(): void {
       if (nav?.id === "tests" && currentView === "tests") tests.next();
       else if (nav?.id === "lan" && currentView === "lan") lan.next();
       else if (nav?.id === "traffic" && currentView === "traffic") traffic.next();
+      else if (nav?.id === "tools" && currentView === "tools") tools.next();
       else if (nav) show(nav.id);
       else void reload();
     },

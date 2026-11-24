@@ -29,10 +29,15 @@ export interface RunCallbacks {
   onStep?: (step: StepEvent) => void;
 }
 
+/** Neue runId (passt in u32). Auch für Abläufe, die nicht über startRun laufen (IP-Profile). */
+export function nextRunId(): number {
+  nextId = (nextId + 1) % 0xe000_0000; // darüber: Backend-Wiederherstellung (0xE…) und logToConsole (0xF…)
+  return nextId;
+}
+
 /** Gemeinsamer Ablauf: Listener anmelden, dann im Backend starten. */
 async function startRun(start: (runId: number) => Promise<void>, cb: RunCallbacks): Promise<RunHandle> {
-  nextId = (nextId + 1) % 0xffff_ffff; // passt in u32
-  const runId = nextId;
+  const runId = nextRunId();
   const lines: string[] = [];
   let resolve!: (r: RunResult) => void;
   const done = new Promise<RunResult>((r) => (resolve = r));

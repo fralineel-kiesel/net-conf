@@ -209,6 +209,10 @@ export interface AppConfig {
   monitorTargets: MonitorTarget[];
   monitorIntervalSec: number;
   wolDevices: WolDevice[];
+  /** Werkzeuge → IP-Profile (ipprofile.rs) */
+  ipProfiles: IpProfile[];
+  /** Fenster schliessen = in den Tray */
+  closeToTray: boolean;
 }
 
 export interface ConfigLoadResult {
@@ -388,4 +392,48 @@ export interface Connection {
   state: string;
   pid: number;
   process: string;
+}
+
+// ---- Phase 4c: Werkzeuge und Komfort ---------------------------------------
+
+/** IP-Profil (ipprofile.rs). Leere Strings = nicht gesetzt. */
+export interface IpProfile {
+  name: string;
+  /** Adaptername beim Speichern – gesucht wird beim Anwenden über die MAC */
+  adapter: string;
+  mac: string;
+  mode: "dhcp" | "static";
+  ipv4: string;
+  /** "255.255.255.0" (Eingabe auch "/24") */
+  subnet: string;
+  gateway: string;
+  dns1: string;
+  dns2: string;
+}
+
+/** Vorschau vor dem Anwenden (Bestätigungsdialog) */
+export interface IpProfilePreview {
+  profile: string;
+  adapter: string;
+  mac: string;
+  from: string;
+  to: string;
+  commands: string[];
+  notes: string[];
+}
+
+/** Event "ip-profile": Sicherheitsnetz nach dem Anwenden */
+export interface IpProfileEvent {
+  phase: "pending" | "kept" | "reverting" | "reverted" | "failed";
+  /** nur bei "pending": Sekunden bis zur automatischen Wiederherstellung */
+  seconds: number | null;
+  message: string;
+  ok: boolean;
+}
+
+export interface AutostartStatus {
+  supported: boolean;
+  enabled: boolean;
+  /** Eintrag zeigt auf eine andere net-conf.exe */
+  otherPath: boolean;
 }
