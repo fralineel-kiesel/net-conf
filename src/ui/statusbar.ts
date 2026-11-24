@@ -4,6 +4,7 @@
 // Läuft der Ping-Monitor, steht links zusätzlich "Monitor: 4 Ziele, 1 DOWN".
 // Ersetzt die früheren Toasts.
 // Phase 4c: Hinweis "Strg+K Befehle" und – falls vorhanden – "[UPDATE v0.x.y]" (klickbar).
+import { onSettingsChange, settings } from "../settings";
 import { onStateChange, state } from "../state";
 import { h } from "./dom";
 
@@ -45,6 +46,18 @@ export function setUpdateIndicator(u: { text: string; onclick: () => void } | nu
   );
 }
 
+// Uhr (Einstellung „Uhr in der Statusleiste“): tickt nur, wenn eingeschaltet –
+// setTimeout auf die nächste volle Sekunde, damit sie nicht „nachgeht“.
+const clockEl = h("span", { class: "sb-clock" });
+let clockTimer = 0;
+function renderClock(): void {
+  window.clearTimeout(clockTimer);
+  clockEl.hidden = !settings.statusClock;
+  if (!settings.statusClock) return;
+  clockEl.replaceChildren(h("span", { class: "sb-sep" }, " │ "), new Date().toLocaleTimeString("de-CH"));
+  clockTimer = window.setTimeout(renderClock, 1000 - (Date.now() % 1000) + 5);
+}
+
 export function createStatusbar(): HTMLElement {
   const left = h("span", { class: "sb-left" });
   const admin = h("span", { class: "sb-admin" });
@@ -68,5 +81,7 @@ export function createStatusbar(): HTMLElement {
   onStateChange(render);
   render();
 
-  return h("footer", { class: "statusbar" }, left, monitorEl, updateEl, h("span", { class: "spacer" }), msgEl, sep(), admin);
+  onSettingsChange(renderClock);
+  renderClock();
+  return h("footer", { class: "statusbar" }, left, monitorEl, updateEl, h("span", { class: "spacer" }), msgEl, sep(), admin, clockEl);
 }

@@ -19,6 +19,9 @@ import { createLatencyGraph, type LatencyGraph } from "../../ui/latencygraph";
 import { setMonitorSummary, status } from "../../ui/statusbar";
 import { choice, kvRow, panel, prompt, tag, tbutton } from "../../ui/widgets";
 import { validateTarget } from "../../validate";
+import { nav } from "../../nav";
+import { registerCommand } from "../../registry";
+import { settings } from "../../settings";
 
 const MAX_LOG = 500;
 /** Spalten der Statustabelle (wie table(), aber Zeilen werden aktualisiert statt neu gebaut) */
@@ -346,6 +349,22 @@ export function createMonitor(): HTMLElement {
     });
   }
   startBtn.addEventListener("click", () => void toggle());
+  registerCommand({
+    id: "test.monitor.toggle",
+    title: "Ping-Monitor starten/stoppen",
+    category: "TEST",
+    keywords: "monitor überwachung dauerping",
+    run: () => {
+      if (!running && config().monitorTargets.length === 0) {
+        nav.show("tests");
+        nav.showTestsTab("monitor");
+        return status("Noch keine Monitor-Ziele – bitte zuerst eines hinzufügen.", "error");
+      }
+      return toggle();
+    },
+  });
+  // Einstellung „Monitor beim Start automatisch starten“: nur einmal, nach dem Laden von config.json
+  let autostartChecked = false;
 
   events.monitor.on((u: MonitorUpdate) => {
     running = u.running;
@@ -367,6 +386,10 @@ export function createMonitor(): HTMLElement {
         running = s.running;
         views = s.targets;
         renderTargets();
+        if (!autostartChecked) {
+          autostartChecked = true;
+          if (settings.monitorAutostart && !running && config().monitorTargets.length > 0) void toggle();
+        }
       })
       .catch((err) => status(errorText(err), "error"));
   });

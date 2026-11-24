@@ -2,6 +2,8 @@
 // Ablauf pro Befehl:  "> ipconfig /renew"  →  Ausgabe  →  "[beendet - Code 0]"
 // Bei Abläufen zusätzlich Schrittmarker: "[1/3] ipconfig /release"
 import { events } from "../events";
+import { registerCommands } from "../registry";
+import { settings } from "../settings";
 import { copyText, h, prefs } from "./dom";
 import { status } from "./statusbar";
 import { panel, tag, tbutton } from "./widgets";
@@ -48,7 +50,9 @@ export function createConsole(): HTMLElement {
   // sonst springt die Ansicht weg, während man oben etwas liest.
   const addLine = (text: string, cls = "") => {
     const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
-    body.append(h("div", { class: `line ${cls}` }, text || " "));
+    // Optional mit Uhrzeit davor (Einstellungen → Konsole), praktisch für Tickets
+    const stamp = settings.consoleTimestamps ? `[${new Date().toLocaleTimeString("de-CH")}] ` : "";
+    body.append(h("div", { class: `line ${cls}` }, stamp + (text || (stamp ? "" : " "))));
     while (body.childElementCount > MAX_LINES) body.firstElementChild?.remove();
     if (atBottom) body.scrollTop = body.scrollHeight;
     updateCount();
@@ -93,6 +97,18 @@ export function createConsole(): HTMLElement {
     updateCount();
     status("Konsole geleert");
   }
+
+  registerCommands([
+    { id: "console.clear", title: "Konsole leeren", category: "AKTION", keywords: "ausgabe löschen", run: () => clear() },
+    { id: "console.copy", title: "Konsole kopieren", category: "AKTION", keywords: "ausgabe zwischenablage", run: () => copyAll() },
+    {
+      id: "console.toggle",
+      title: "Konsole ein-/ausklappen",
+      category: "EINSTELLUNG",
+      keywords: "ausgabe verstecken zeigen",
+      run: () => setCollapsed(!p.el.classList.contains("collapsed")),
+    },
+  ]);
 
   return p.el;
 }

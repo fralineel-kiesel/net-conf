@@ -1,58 +1,18 @@
 // Einstellungen (nur Frontend, gespeichert im localStorage des WebViews).
 import { ensureFont } from "./fonts";
+import { DEFAULTS, sanitizeSettings, type Settings } from "./settingsdata";
 import { ACCENTS, FONT_DEFAULT, FONT_MAX, FONT_MIN, FONTS, fontById, lineHeightFor, THEMES, themeById, type FontId, type ThemeId } from "./themes";
 import { prefs } from "./ui/dom";
-import { validateTarget } from "./validate";
 
 export { ACCENTS, FONT_DEFAULT, FONT_MAX, FONT_MIN, FONTS, THEMES };
 
-export type ViewId = "overview" | "actions" | "tests" | "tables" | "lan" | "wifi" | "traffic" | "tools" | "settings";
-
-export interface Settings {
-  /** Farb-Theme (src/themes.ts) */
-  theme: ThemeId;
-  /** Akzentfarbe – nur im Theme "Cyan" wählbar, die anderen Themes bringen ihre eigene mit */
-  accent: string;
-  /** Schriftart: "theme" = die des Themes, sonst fest gewählt (themes.ts → FONTS) */
-  font: FontId | "theme";
-  /** Schriftgrösse in px (10–20), Strg +/-/0 */
-  fontSize: number;
-  /** Beim Start nach Updates suchen (höchstens 1× pro 24 h) */
-  updateCheck: boolean;
-  pingTarget: string;
-  consoleLines: number;
-  /** "last" = zuletzt verwendete Ansicht */
-  startView: ViewId | "last";
-}
-
-export const CONSOLE_LINES = [5, 8, 12, 16];
-
-export const DEFAULTS: Settings = {
-  theme: "cyan",
-  accent: "#22d3ee",
-  font: "theme",
-  fontSize: FONT_DEFAULT,
-  updateCheck: true,
-  pingTarget: "1.1.1.1",
-  consoleLines: 8,
-  startView: "last",
-};
+export { CONSOLE_LINES, DEFAULTS, type PingCount, type Settings, type ViewId } from "./settingsdata";
 
 function load(): Settings {
   try {
-    const raw = JSON.parse(prefs.get("settings", "{}")) as Partial<Settings>;
-    const s = { ...DEFAULTS, ...raw };
-    // Ungültige gespeicherte Werte durch Standardwerte ersetzen
-    if (!ACCENTS.some((a) => a.value === s.accent)) s.accent = DEFAULTS.accent;
-    if (!THEMES.some((t) => t.id === s.theme)) s.theme = DEFAULTS.theme;
-    if (s.font !== "theme" && !FONTS.some((f) => f.id === s.font)) s.font = DEFAULTS.font;
-    if (!Number.isInteger(s.fontSize) || s.fontSize < FONT_MIN || s.fontSize > FONT_MAX) s.fontSize = DEFAULTS.fontSize;
-    if (typeof s.updateCheck !== "boolean") s.updateCheck = DEFAULTS.updateCheck;
-    if (!CONSOLE_LINES.includes(s.consoleLines)) s.consoleLines = DEFAULTS.consoleLines;
-    if (validateTarget(s.pingTarget)) s.pingTarget = DEFAULTS.pingTarget;
-    return s;
+    return sanitizeSettings(JSON.parse(prefs.get("settings", "{}")));
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, keybindings: [] };
   }
 }
 
@@ -89,6 +49,12 @@ export function applySettings(): void {
   root.setProperty("--fs", `${px}px`);
   root.setProperty("--lh", `${lineHeightFor(px)}px`);
   root.setProperty("--console-lines", String(settings.consoleLines));
+  document.documentElement.classList.toggle("no-blink", !settings.cursorBlink);
+}
+
+/** Alle Einstellungen ersetzen (Import, Zurücksetzen) – vorher geprüft. */
+export function replaceSettings(next: Settings): void {
+  updateSettings(sanitizeSettings(next));
 }
 
 /** Schriftgrösse ändern (Strg +/-/0). Gibt die neue Grösse zurück. */

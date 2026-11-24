@@ -1,8 +1,11 @@
 // Ansicht "Einstellungen" (F10):
-//   DARSTELLUNG  Theme (mit Vorschau), Schriftart (mit Vorschau), Akzentfarbe (nur Theme Cyan), Schriftgrösse
-//   ALLGEMEIN    Standard-Ping-Ziel, Konsole-Höhe, Start-Ansicht
+//   (Suchfeld)   filtert alle Zeilen der Seite
+//   DARSTELLUNG  Theme, Schriftart (je mit Vorschau), Akzentfarbe (nur Cyan), Schriftgrösse, Cursor
+//   ALLGEMEIN    Ping-Ziel + -Anzahl, Konsole (Höhe, Zeitstempel), Statusleisten-Uhr, Monitor-Autostart, Start-Ansicht
+//   TASTENKÜRZEL eigene Kürzel für Befehle der Palette (settings-keys.ts)
 //   FENSTER      In den Tray minimieren, Mit Windows starten
 //   UPDATES      Beim Start prüfen, Jetzt prüfen
+//   SICHERN      Export/Import als Text (settings-backup.ts)
 //   INFO         Version, Speicherorte
 import { backend, errorText } from "../api";
 import { config, configPath, onConfigChange, updateConfig } from "../config";
@@ -16,6 +19,7 @@ import {
   FONTS,
   activeFont,
   onSettingsChange,
+  replaceSettings,
   setFont,
   setFontSize,
   setTheme,
@@ -27,11 +31,16 @@ import {
 import { ensureFont } from "../fonts";
 import { fontById, type FontDef, type Theme } from "../themes";
 import type { AutostartStatus } from "../types";
-import { formatUnix, h, replaceChildren } from "../ui/dom";
+import { copyText, formatUnix, h, replaceChildren } from "../ui/dom";
 import { confirmDialog } from "../ui/modal";
 import { status } from "../ui/statusbar";
 import { checkForUpdates, lastCheck } from "../ui/updates";
-import { checkbox, copyable, kvRow, panel, prompt, radio, tag, tbutton } from "../ui/widgets";
+import { checkbox, choice, copyable, kvRow, panel, prompt, radio, tag, tbutton } from "../ui/widgets";
+import { normalize } from "../fuzzy";
+import { PING_COUNTS } from "../types";
+import { exportSettings, type PingCount } from "../settingsdata";
+import { createBackupPanel } from "./settings-backup";
+import { createKeysPanel } from "./settings-keys";
 import { validateTarget } from "../validate";
 import { registerCommand, registerCommands } from "../registry";
 import { nav } from "../nav";
@@ -103,29 +112,90 @@ export function createSettings(): HTMLElement {
     kvRow("Darstellung", "lokal im Benutzerprofil (WebView-Speicher)"),
     kvRow("Daten", configFile, h("span", { class: "dim" }, "Monitor, WoL-Geräte, IP-Profile, Fenster")),
     kvRow("Öffentliche IP", "wird nur auf Klick über ipify.org abgefragt"),
-    kvRow("Tasten", h("span", {}, "Strg+K Befehlspalette · Strg +/−/0 Schriftgrösse")),
+    kvRow("Tasten", h("span", {}, "Strg+K Befehlspalette · Strg +/−/0 Schriftgrösse · eigene Kürzel unter TASTENKÜRZEL")),
   );
+  const keys = createKeysPanel();
+  const backup = createBackupPanel();
   const resetBtn = tbutton("Auf Standard zurücksetzen", {
     onclick: async () => {
       const ok = await confirmDialog({
         title: "Einstellungen zurücksetzen?",
-        message: "Darstellung, Ping-Ziel, Konsole und Start-Ansicht werden auf die Standardwerte zurückgesetzt.",
+        message:
+          "Darstellung, Ping-Ziel, Konsole, Start-Ansicht und alle eigenen Tastenkürzel werden auf die Standardwerte zurückgesetzt.\n" +
+          "Tipp: vorher unter SICHERN & ÜBERTRAGEN exportieren.",
         confirmText: "Zurücksetzen",
+        danger: true,
       });
       if (!ok) return;
-      updateSettings({ ...DEFAULTS });
+      replaceSettings(structuredClone(DEFAULTS));
       renderLook();
       renderGeneral();
       renderUpdates();
       status("Einstellungen zurückgesetzt", "ok");
     },
   });
+  // Suchfeld: blendet alle Zeilen aus, die den Text nicht enthalten (Gross/klein und Umlaute egal)
+  const search = h("input", {
+    class: "tinput",
+    type: "text",
+    spellcheck: "false",
+    autocomplete: "off",
+    placeholder: "Einstellungen durchsuchen … z. B. schrift, ping, tray",
+    "aria-label": "Einstellungen durchsuchen",
+  });
+  const searchInfo = h("span", { class: "dim" });
+  const stack = h(
+    "div",
+    { class: "stack" },
+    look.el,
+    general.el,
+    keys.el,
+    windowPanel.el,
+    updates.el,
+    backup,
+    info.el,
+    h("div", { class: "settings-reset" }, resetBtn),
+  );
   const view = h(
     "section",
     { class: "view", "data-view": "settings" },
     prompt("netconf --config").el,
-    h("div", { class: "stack" }, look.el, general.el, windowPanel.el, updates.el, info.el, h("div", {}, resetBtn)),
+    h("div", { class: "settings-search" }, h("span", { class: "input-wrap" }, h("span", { class: "dim" }, "> "), search), " ", searchInfo),
+    stack,
   );
+
+  function applyFilter(): void {
+    const q = normalize(search.value.trim());
+    let hits = 0;
+    for (const p of stack.querySelectorAll<HTMLElement>(":scope > .panel")) {
+      const title = normalize(p.querySelector(".panel-title")?.textContent ?? "");
+      const rows = [...p.querySelectorAll<HTMLElement>(".kv-row")];
+      const titleHit = !q || title.includes(q);
+      let visible = 0;
+      for (const r of rows) {
+        const hit = titleHit || normalize(r.textContent ?? "").includes(q);
+        if (r.hidden !== !hit) r.hidden = !hit;
+        if (hit) visible++;
+      }
+      // Panels ohne Zeilen-Treffer (z. B. Tabelle der Tastenkürzel): ganzer Text zählt
+      const show = titleHit || visible > 0 || normalize(p.textContent ?? "").includes(q);
+      if (p.hidden !== !show) p.hidden = !show;
+      if (show) hits++;
+    }
+    searchInfo.textContent = q ? (hits ? `${hits} Bereich(e)` : "keine Treffer") : "";
+  }
+  search.addEventListener("input", applyFilter);
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && search.value) {
+      e.stopPropagation();
+      search.value = "";
+      applyFilter();
+    }
+  });
+  // Bereiche werden oft neu aufgebaut (Theme gewählt …) – Filter danach wieder anwenden
+  new MutationObserver(() => {
+    if (search.value) applyFilter();
+  }).observe(stack, { childList: true, subtree: true });
 
   // --- DARSTELLUNG --------------------------------------------------------------
   const fontValue = h("span", { class: "plain" });
@@ -216,6 +286,13 @@ export function createSettings(): HTMLElement {
         accentAllowed ? h("span", { class: "dim" }, "Grün/Rot sind für Status-Wörter reserviert.") : null,
       ),
       kvRow("Schriftgrösse", fontRow),
+      kvRow(
+        "Cursor",
+        checkbox("Block-Cursor in Überschriften blinkt", settings.cursorBlink, (v) => {
+          updateSettings({ cursorBlink: v });
+          status(v ? "Cursor blinkt" : "Cursor blinkt nicht mehr", "ok");
+        }),
+      ),
     );
   }
 
@@ -274,10 +351,35 @@ export function createSettings(): HTMLElement {
       updateSettings({ startView: v });
       status(`Start-Ansicht: ${START_VIEWS.find((s) => s.value === v)?.label}`, "ok");
     });
+    const pingCount = choice<PingCount>(
+      [...PING_COUNTS.map((n) => ({ value: n as PingCount, label: String(n) })), { value: "inf", label: "∞", title: "unbegrenzt (ping -t)" }],
+      settings.pingCount,
+      (v) => {
+        updateSettings({ pingCount: v });
+        status(`Ping-Anzahl vorausgewählt: ${v === "inf" ? "unbegrenzt" : v}`, "ok");
+      },
+    );
+    const flag = (label: string, key: "consoleTimestamps" | "statusClock" | "monitorAutostart", on: string, off: string) =>
+      checkbox(label, settings[key], (v) => {
+        updateSettings({ [key]: v });
+        status(v ? on : off, "ok");
+      });
     replaceChildren(
       generalBody,
       kvRow("Ping-Ziel", h("span", {}, h("span", { class: "input-wrap" }, h("span", { class: "dim" }, "> "), pingInput), pingMsg)),
+      kvRow("Ping-Anzahl", pingCount.el, h("span", { class: "dim" }, "Vorauswahl im Ping-Test (Tests → Ping)")),
       kvRow("Konsole-Höhe", lines),
+      kvRow(
+        "Konsole",
+        flag("Uhrzeit vor jeder Zeile", "consoleTimestamps", "Konsole: mit Uhrzeit", "Konsole: ohne Uhrzeit"),
+        h("span", { class: "dim" }, "z. B. [14:03:22] – praktisch, wenn man die Ausgabe in ein Ticket kopiert"),
+      ),
+      kvRow("Statusleiste", flag("Uhr anzeigen", "statusClock", "Uhr in der Statusleiste: ein", "Uhr in der Statusleiste: aus")),
+      kvRow(
+        "Ping-Monitor",
+        flag("Beim Start automatisch starten", "monitorAutostart", "Monitor startet ab jetzt automatisch", "Monitor startet nicht mehr automatisch"),
+        h("span", { class: "dim" }, "nur wenn Ziele vorhanden sind (Tests → Monitor)"),
+      ),
       kvRow("Start-Ansicht", start),
     );
   }
@@ -355,11 +457,19 @@ export function createSettings(): HTMLElement {
   // Schriftgrösse kann sich auch per Tastatur/Befehlspalette ändern
   // Theme, Schriftart oder -grösse können sich auch per Tastatur/Befehlspalette ändern
   let lookKey = "";
+  let generalKey = "";
   onSettingsChange(() => {
-    const key = `${settings.theme}|${settings.font}|${settings.fontSize}`;
+    const key = `${settings.theme}|${settings.font}|${settings.fontSize}|${settings.accent}|${settings.cursorBlink}`;
     if (key !== lookKey) {
       lookKey = key;
       renderLook();
+    }
+    // Import/Zurücksetzen: auch die anderen Bereiche neu aufbauen
+    const g = JSON.stringify([settings.pingTarget, settings.pingCount, settings.consoleLines, settings.consoleTimestamps, settings.statusClock, settings.monitorAutostart, settings.startView, settings.updateCheck]);
+    if (g !== generalKey) {
+      generalKey = g;
+      renderGeneral();
+      renderUpdates();
     }
   });
   onConfigChange(renderWindow);
@@ -394,6 +504,35 @@ export function createSettings(): HTMLElement {
     { id: "setting.font.up", title: "Schrift grösser", category: "EINSTELLUNG", hint: "Strg +", keywords: "zoom schriftgrösse", run: () => changeFont(settings.fontSize + 1) },
     { id: "setting.font.down", title: "Schrift kleiner", category: "EINSTELLUNG", hint: "Strg −", keywords: "zoom schriftgrösse", run: () => changeFont(settings.fontSize - 1) },
     { id: "setting.font.reset", title: `Schrift Standard (${FONT_DEFAULT} px)`, category: "EINSTELLUNG", hint: "Strg 0", keywords: "zoom schriftgrösse zurücksetzen", run: () => changeFont(FONT_DEFAULT) },
+  ]);
+  registerCommands([
+    {
+      id: "setting.export",
+      title: "Einstellungen exportieren",
+      category: "EINSTELLUNG",
+      keywords: "sichern backup zwischenablage kopieren",
+      run: async () => {
+        const ok = await copyText(exportSettings(settings, __APP_VERSION__));
+        status(ok ? "kopiert: Einstellungen (Text)" : "Kopieren fehlgeschlagen", ok ? "ok" : "error");
+      },
+    },
+    {
+      id: "setting.keys",
+      title: "Tastenkürzel bearbeiten",
+      category: "EINSTELLUNG",
+      keywords: "shortcut taste kürzel hotkey",
+      run: () => {
+        nav.show("settings");
+        keys.el.scrollIntoView({ block: "start" });
+      },
+    },
+    {
+      id: "setting.clock",
+      title: "Uhr in der Statusleiste ein/aus",
+      category: "EINSTELLUNG",
+      keywords: "zeit uhrzeit",
+      run: () => updateSettings({ statusClock: !settings.statusClock }),
+    },
   ]);
   registerCommand({
     id: "setting.update",

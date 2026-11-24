@@ -1212,3 +1212,32 @@ body.compact-sim #app {
   flex-basis: 100%;
   padding-left: 4ch;
 }
+
+/* Einstellung „Cursor blinkt“ aus */
+.no-blink .cursor {
+  animation: none;
+}
+.sb-clock {
+  flex: none;
+}
+/* Mehrzeiliges Textfeld (Einstellungen importieren) */
+.tarea {
+  display: block;
+  width: 100%;
+  min-height: calc(var(--lh) * 6);
+  padding: calc(4rem / 13) 1ch;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--bright);
+  font: inherit;
+  caret-color: var(--accent);
+  resize: vertical;
+}
+.tarea:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+/* Suchfeld der Einstellungen: Treffer-Filter */
+.settings-search {
+  margin-bottom: calc(4rem / 13);
+}

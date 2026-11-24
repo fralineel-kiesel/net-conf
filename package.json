@@ -8,8 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "e2e": "node scripts/e2e/settings.e2e.cjs",
     "tauri": "tauri",
-    "test": "node --experimental-strip-types --no-warnings scripts/pingscale.test.ts && node --experimental-strip-types --no-warnings scripts/health.test.ts && node --experimental-strip-types --no-warnings scripts/traffic.test.ts && node --experimental-strip-types --no-warnings scripts/subnet.test.ts && node --experimental-strip-types --no-warnings scripts/theme.test.ts && node --experimental-strip-types --no-warnings scripts/fuzzy.test.ts && node --experimental-strip-types --no-warnings scripts/update.test.ts"
+    "test": "node --experimental-strip-types --no-warnings scripts/pingscale.test.ts && node --experimental-strip-types --no-warnings scripts/health.test.ts && node --experimental-strip-types --no-warnings scripts/traffic.test.ts && node --experimental-strip-types --no-warnings scripts/subnet.test.ts && node --experimental-strip-types --no-warnings scripts/theme.test.ts && node --experimental-strip-types --no-warnings scripts/fuzzy.test.ts && node --experimental-strip-types --no-warnings scripts/update.test.ts && node --experimental-strip-types --no-warnings scripts/keys.test.ts && node --experimental-strip-types --no-warnings scripts/settings.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.5"

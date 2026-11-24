@@ -10,6 +10,7 @@ import { copyText, h, logo, prefs } from "./ui/dom";
 import { dialogOpen } from "./ui/modal";
 import { applySettings, FONT_DEFAULT, setFontSize, settings, type ViewId } from "./settings";
 import { initUpdates } from "./ui/updates";
+import { initShortcuts, isRecording } from "./ui/shortcuts";
 import { createStatusbar, status } from "./ui/statusbar";
 import { tbutton } from "./ui/widgets";
 import { nav } from "./nav";
@@ -170,24 +171,13 @@ function main(): void {
       run: () => show(n.id),
     })),
   );
-  registerCommands([
-    {
-      id: "app.compact.on",
-      title: "Kompaktmodus einschalten",
-      category: "EINSTELLUNG",
-      keywords: "klein fenster vordergrund mini",
-      visible: () => !compactOn,
-      run: () => setCompact(true),
-    },
-    {
-      id: "app.compact.off",
-      title: "Kompaktmodus beenden",
-      category: "EINSTELLUNG",
-      keywords: "normal gross fenster",
-      visible: () => compactOn,
-      run: () => setCompact(false),
-    },
-  ]);
+  registerCommand({
+    id: "app.compact",
+    title: "Kompaktmodus ein/aus",
+    category: "EINSTELLUNG",
+    keywords: "klein fenster vordergrund mini normal",
+    run: () => setCompact(!compactOn),
+  });
   registerCommand({
     id: "app.reload",
     title: "Neu laden",
@@ -254,7 +244,7 @@ function main(): void {
   document.addEventListener(
     "keydown",
     (e) => {
-      if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      if (!e.ctrlKey || e.altKey || e.metaKey || isRecording()) return;
       let next: number | null = null;
       if (e.key === "+" || e.key === "=" || e.code === "NumpadAdd") next = settings.fontSize + 1;
       else if (e.key === "-" || e.code === "NumpadSubtract") next = settings.fontSize - 1;
@@ -265,6 +255,8 @@ function main(): void {
     },
     true,
   );
+  initShortcuts(); // eigene Tastenkürzel (Einstellungen → Tastenkürzel)
+
   // Strg + Mausrad würde den WebView zoomen
   document.addEventListener(
     "wheel",

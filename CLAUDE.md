@@ -27,8 +27,10 @@ Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** komme
 - Lokal prüfbar:
   - `npm run build` – Typecheck + Frontend-Build
   - `npm test` – Tests der Graph-Skalen (Ping + Traffic), der Health-Check-Bewertung, der Phase-4b-Helfer,
-    des Subnetz-Rechners, der Theme-Kontraste, der Fuzzy-Suche und des Update-Vergleichs
-    (`scripts/*.test.ts`, Node ≥ 22, ohne Test-Framework).
+    des Subnetz-Rechners, der Theme-Kontraste, der Fuzzy-Suche, des Update-Vergleichs, der Tastenkürzel und der
+    Einstellungs-Prüfung/Export/Import (`scripts/*.test.ts`, Node ≥ 22, ohne Test-Framework).
+  - `npm run e2e` – Ende-zu-Ende-Test der Einstellungen im Browser-Mock (`scripts/e2e/settings.e2e.cjs`,
+    braucht laufendes `npm run dev` und Playwright – in der Cloud vorinstalliert, bewusst keine Projekt-Abhängigkeit).
     Kein `constructor(private x)` in Modulen, die Node lädt (Strip-Modus kennt keine Parameter Properties).
     Importe zwischen Modulen, die Node laden soll, mit `.ts`-Endung schreiben (z. B. `health.ts` → `./netutil.ts`).
   - `npm run dev` – UI im Browser mit Mock-Daten (`src/mock.ts` + `src/mock-diag.ts`), `?admin=1` simuliert Adminrechte,
@@ -100,7 +102,9 @@ src/
   themes.ts    Farb-Themes + Schriftarten (FONTS) als Daten, WCAG-Kontrast (getestet), Akzentfarben, Schriftgrössen
   fonts.ts     eingebettete Schriften (woff2) erst bei Bedarf per FontFace laden, fontEpoch() für Graphen
   fuzzy.ts     Fuzzy-Suche der Befehlspalette (rein, getestet)
-  registry.ts  Befehls-Registry der Palette (registerCommand)
+  registry.ts  Befehls-Registry der Palette (registerCommand, commandById, onCommandsChanged)
+  keys.ts      eigene Tastenkürzel: Tastendruck → "Strg+Umschalt+D", Regeln, Konflikte (rein, getestet)
+  settingsdata.ts  Einstellungen: Typ, DEFAULTS, sanitizeSettings, Export/Import als Text (rein, getestet)
   update.ts    Update-Check: SemVer, Release-URL-Prüfung, API-Antwort auswerten, fetch (rein bis auf fetch)
   views/       overview.ts (ASCII-Titel, SYSTEM, öffentliche IP, WLAN), actions.ts, tables.ts, settings.ts,
                lan.ts (Scanner + Wake-on-LAN), tests.ts (Reiter) + tests/ping.ts, tracert.ts, dns.ts,
@@ -110,7 +114,9 @@ src/
                statusbar.ts (Rückmeldungen statt Toasts), console.ts, modal.ts,
                latencygraph.ts (Block-Graph auf Canvas für Ping/Traffic/WLAN-Signal, Optionen `unit`,
                `nullMark`, `zeroEmpty`; `mini: true` = 1 Zeile für den Monitor), admin.ts,
-               palette.ts (Befehlspalette Strg+K), updates.ts (Update-Prüfung + Statusleisten-Hinweis)
+               palette.ts (Befehlspalette Strg+K), updates.ts (Update-Prüfung + Statusleisten-Hinweis),
+               shortcuts.ts (eigene Tastenkürzel ausführen + Aufnahme-Dialog)
+  views/settings-keys.ts, settings-backup.ts  Panels TASTENKÜRZEL und SICHERN & ÜBERTRAGEN
 assets/logo.svg  Quelle des Logos (Icons + Inline-SVG in der Kopfzeile)
 assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 ```
@@ -286,7 +292,7 @@ Layout:
 | F7 | WLAN | Verbindung (live, Signal-Graph), Netze in der Umgebung, Kanal-Belegung, Profile, Verbinden |
 | F8 | Traffic | Reiter Live · Verbindungen (nochmal F8 = nächster Reiter) |
 | F9 | Werkzeuge | Reiter Subnetz · IP-Profile (nochmal F9 = nächster Reiter) |
-| F10 | Einstellungen | Darstellung (Theme, Schriftart, Akzent, Schriftgrösse), Allgemein, Fenster (Tray, Autostart), Updates, Info |
+| F10 | Einstellungen | Suchfeld; Darstellung (Theme, Schriftart, Akzent, Grösse, Cursor), Allgemein (Ping-Ziel/-Anzahl, Konsole mit Uhrzeit, Uhr, Monitor-Autostart, Start-Ansicht), Tastenkürzel, Fenster (Tray, Autostart), Updates, Sichern & Übertragen, Info |
 | Strg+K | Befehlspalette | Suche über Seiten, Aktionen, Tests, Werkzeuge, Einstellungen |
 
 Neue Seite: `ViewId` in `settings.ts`, `NAV` + `views` (+ ggf. `lifecycle`) in `main.ts`, `START_VIEWS` in `views/settings.ts`.
@@ -305,6 +311,22 @@ Seiten aus NAV landen automatisch in der Befehlspalette; Reiter und Funktionen m
   also mit Admin-Hinweis und Bestätigungsdialog. Die Palette schliesst sich **vor** `run` – nie an einem Dialog vorbei.
 - Suche: `fuzzy.ts` (Titel: Teilstring oder Teilfolge, Stichwörter nur Teilstring; Akzente egal). Strg+K ist gesperrt,
   solange ein Dialog offen ist; F-Tasten sind gesperrt, solange die Palette offen ist.
+
+## Einstellungen und eigene Tastenkürzel
+- Neue Einstellung: Feld in `Settings` + `DEFAULTS` + Prüfung in `sanitizeSettings` (`settingsdata.ts`) + Test in
+  `scripts/settings.test.ts`; UI in `views/settings.ts`. Gespeichert im localStorage, beim Laden/Import immer geprüft
+  (Unbekanntes fällt weg, Ungültiges wird Standard). Arrays (z. B. `keybindings`) nie verändern, immer ersetzen.
+- Export/Import: JSON-Text mit `kind: "net-conf-settings"`, `format: 1` über die Zwischenablage. Enthält NUR die
+  localStorage-Einstellungen – config.json-Daten (IP-Profile, WoL, Monitor-Ziele, Tray) nicht.
+- **Tastenkürzel** binden eine Kombination an eine Registry-Befehls-ID (nur Befehle ohne Parameter). Ausgeführt wird
+  `cmd.run()` – derselbe Weg wie die Palette, also mit Admin-Hinweis und Bestätigung. Nicht aktiv, solange ein Dialog,
+  die Palette oder eine Aufnahme offen ist. Regeln (`keys.checkCombo`): mit Strg oder Alt (ohne nur F11–F24),
+  kein Strg+Alt (= AltGr), keine festen Kürzel (`RESERVED`: F1–F10, Strg+K, Strg +/−/0, Strg+A/C/V/X/Z/Y, Alt+F4 …),
+  keine Doppelbelegung (Konflikt → Nachfrage „Ersetzen“), max. 50, ein Kürzel pro Befehl. Namen deutsch
+  („Strg+Umschalt+D“, „Pfeil↑“, „Plus“), Buchstaben nach `e.key` (deutsches Layout), Ziffern nach `e.code`.
+- Befehle, die man gern auf Tasten legt, als Registry-Befehl anmelden (z. B. `console.clear`, `test.monitor.toggle`,
+  `test.ping.default`, `app.compact`). main.ts meldet einige Befehle erst nach den Seiten an → Listen, die Befehle
+  anzeigen, über `onCommandsChanged` neu aufbauen.
 
 ## Tray, Kompaktmodus, Autostart (desktop.rs)
 - Tray-Icon (App-Icon) mit Menü „Öffnen“, „Kompaktmodus“, „Beenden“; Linksklick zeigt das Fenster.

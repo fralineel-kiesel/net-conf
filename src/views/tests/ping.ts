@@ -17,10 +17,9 @@ import { validateTarget } from "../../validate";
 
 /** "inf" = unbegrenzt (ping -t, bis Stop) */
 type Count = (typeof PING_COUNTS)[number] | "inf";
-const DEFAULT_COUNT: Count = 4;
 
 export function createPing(): HTMLElement {
-  const heading = prompt(`ping -n 4 ${settings.pingTarget}`);
+  const heading = prompt(`ping ${settings.pingCount === "inf" ? "-t" : `-n ${settings.pingCount}`} ${settings.pingTarget}`);
   const input = h("input", {
     class: "tinput",
     id: "ping-target",
@@ -34,7 +33,7 @@ export function createPing(): HTMLElement {
 
   // Anzahl: 2 … 32 Pakete (ping -n) oder unbegrenzt (ping -t). Das Backend
   // prüft die Zahl noch einmal gegen dieselbe Liste.
-  let count: Count = DEFAULT_COUNT;
+  let count: Count = settings.pingCount; // Vorauswahl aus den Einstellungen
   const countChoice = choice<Count>(
     [
       ...PING_COUNTS.map((n) => ({ value: n as Count, label: String(n), title: `${n} Pakete (ping -n ${n})` })),
@@ -221,7 +220,17 @@ export function createPing(): HTMLElement {
 
   // Neues Standard-Ziel aus den Einstellungen übernehmen, solange nichts läuft
   let lastDefault = settings.pingTarget;
+  // Neue Standard-Anzahl übernehmen, solange kein Ping läuft
+  let lastCount = settings.pingCount;
   onSettingsChange(() => {
+    if (settings.pingCount !== lastCount) {
+      lastCount = settings.pingCount;
+      if (!handle) {
+        count = settings.pingCount;
+        countChoice.set(count);
+        updateHeading();
+      }
+    }
     if (settings.pingTarget === lastDefault) return;
     if (!handle && input.value.trim() === lastDefault) {
       input.value = settings.pingTarget;
@@ -233,6 +242,17 @@ export function createPing(): HTMLElement {
 
   // Andere Ansichten (LAN-Scanner) können hierher springen und ein Ziel anpingen
   nav.startPing = (target) => void quickPing(target);
+  registerCommand({
+    id: "test.ping.default",
+    title: "Ping zum Standard-Ziel",
+    category: "TEST",
+    keywords: "ping schnell test internet",
+    run: () => {
+      nav.show("tests");
+      nav.showTestsTab("ping");
+      void quickPing(settings.pingTarget);
+    },
+  });
   registerCommand({
     id: "test.ping",
     title: "ping <ziel>",

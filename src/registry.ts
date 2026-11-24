@@ -51,13 +51,38 @@ export interface PaletteCommand {
 }
 
 const commands = new Map<string, PaletteCommand>();
+const listeners = new Set<() => void>();
+let notifyScheduled = false;
+
+/** Wird aufgerufen, wenn Befehle dazukommen (gebündelt, einmal pro Durchlauf). */
+export function onCommandsChanged(fn: () => void): void {
+  listeners.add(fn);
+}
 
 export function registerCommand(c: PaletteCommand): void {
   commands.set(c.id, c);
+  // Seiten melden ihre Befehle nacheinander an – Listener nur einmal danach benachrichtigen
+  if (!notifyScheduled) {
+    notifyScheduled = true;
+    queueMicrotask(() => {
+      notifyScheduled = false;
+      for (const fn of listeners) fn();
+    });
+  }
 }
 
 export function registerCommands(list: PaletteCommand[]): void {
   for (const c of list) registerCommand(c);
+}
+
+/** Befehl per ID (auch unsichtbare) – für eigene Tastenkürzel */
+export function commandById(id: string): PaletteCommand | undefined {
+  return commands.get(id);
+}
+
+/** Alle Befehle ohne Parameter (auch gerade unsichtbare) – Auswahl für Tastenkürzel */
+export function bindableCommands(): PaletteCommand[] {
+  return [...commands.values()].filter((c) => !c.param);
 }
 
 /** Alle sichtbaren Befehle in Anmelde-Reihenfolge */

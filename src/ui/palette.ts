@@ -8,6 +8,7 @@ import { errorText } from "../api";
 import { fuzzyFilter } from "../fuzzy";
 import { allCommands, type PaletteCommand } from "../registry";
 import { h, replaceChildren } from "./dom";
+import { comboForCommand } from "./shortcuts";
 import { status } from "./statusbar";
 import { panel } from "./widgets";
 
@@ -123,7 +124,13 @@ export function openPalette(prefill = ""): void {
           h("span", { class: "pal-label" }, e.label),
           e.error
             ? h("span", { class: "pal-hint tag-err" }, e.error)
-            : h("span", { class: "pal-hint" }, e.cmd.param && e.arg === null ? "Tab/Enter ergänzt" : (e.cmd.hint ?? "")),
+            : h(
+                "span",
+                { class: "pal-hint" },
+                e.cmd.param && e.arg === null
+                  ? "Tab/Enter ergänzt"
+                  : [comboForCommand(e.cmd.id), e.cmd.hint].filter(Boolean).join(" · "),
+              ),
         );
         row.addEventListener("mousemove", () => {
           if (sel !== i) select(i, false);
