@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { events } from "./events";
 import * as mock from "./mock";
 import type {
+  ActionId,
   AdapterInfo,
   DnsRequest,
   DnsResponse,
@@ -17,6 +18,7 @@ import type {
   PublicIp,
   RouteEntry,
   StartedEvent,
+  StepEvent,
   WifiInfo,
 } from "./types";
 
@@ -31,6 +33,7 @@ export async function initBackend(): Promise<void> {
   }
   await Promise.all([
     listen<StartedEvent>("cmd-started", (e) => events.started.emit(e.payload)),
+    listen<StepEvent>("cmd-step", (e) => events.step.emit(e.payload)),
     listen<OutputEvent>("cmd-output", (e) => events.output.emit(e.payload)),
     listen<FinishedEvent>("cmd-finished", (e) => events.finished.emit(e.payload)),
   ]);
@@ -50,6 +53,10 @@ export const backend = {
 
   runCommand: (runId: number, command: NetCommand): Promise<void> =>
     isTauri ? invoke<void>("run_command", { runId, command }) : mock.runCommand(runId, command),
+
+  /** Aktion aus der Whitelist starten – es geht nur die ID über die Brücke. */
+  runAction: (runId: number, action: ActionId, adapter: string | null): Promise<void> =>
+    isTauri ? invoke<void>("run_action", { runId, action, adapter }) : mock.runAction(runId, action, adapter),
 
   cancelCommand: (runId: number): Promise<void> =>
     isTauri ? invoke<void>("cancel_command", { runId }) : mock.cancelCommand(runId),

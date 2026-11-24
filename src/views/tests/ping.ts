@@ -199,7 +199,7 @@ export function createPing(): HTMLElement {
       setStatus(`gestoppt – ${stats.sent} gesendet, ${stats.received} empfangen`);
       status("Ping gestoppt");
     } else if (stats.received === 0) {
-      const msg = explainFailure(command, result.exitCode, result.lines, false);
+      const msg = explainFailure(command, result.exitCode, result.lines);
       setStatus(msg, "err");
       status(msg, "error");
     } else {

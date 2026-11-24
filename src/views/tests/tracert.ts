@@ -153,7 +153,7 @@ export function createTracert(): HTMLElement {
       setStatus(`gestoppt nach ${hops.length} Hops`);
       status("Traceroute gestoppt");
     } else if (hops.length === 0) {
-      const msg = explainFailure(command, result.exitCode, result.lines, false);
+      const msg = explainFailure(command, result.exitCode, result.lines);
       setStatus(msg, "err");
       status(msg, "error");
     } else {

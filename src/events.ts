@@ -1,6 +1,6 @@
 // Kleiner Event-Verteiler. Sowohl echte Tauri-Events als auch die
 // Mock-Daten im Browser landen hier – der Rest der App merkt keinen Unterschied.
-import type { FinishedEvent, OutputEvent, StartedEvent } from "./types";
+import type { FinishedEvent, OutputEvent, StartedEvent, StepEvent } from "./types";
 
 type Handler<T> = (event: T) => void;
 
@@ -20,6 +20,7 @@ export class Emitter<T> {
 
 export const events = {
   started: new Emitter<StartedEvent>(),
+  step: new Emitter<StepEvent>(),
   output: new Emitter<OutputEvent>(),
   finished: new Emitter<FinishedEvent>(),
 };

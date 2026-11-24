@@ -74,7 +74,7 @@ impl ActionId {
             ActionId::DnsRefresh => "DNS komplett auffrischen",
             ActionId::ArpClear => "ARP-Cache leeren",
             ActionId::NbtPurge => "NetBIOS-Cache neu laden",
-            ActionId::NbtReregister => "NetBIOS-Namen neu registrieren",
+            ActionId::NbtReregister => "NetBIOS neu registrieren",
             ActionId::AdapterRestart => "Adapter neu starten",
             ActionId::WinsockReset => "Winsock zurücksetzen",
             ActionId::TcpipReset => "TCP/IP zurücksetzen",

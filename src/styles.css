@@ -502,17 +502,48 @@ p {
 .note {
   margin: 8px 0 4px;
 }
+/* Tabellenzeilen: [ Button ] | Status/Tags | Befehl/Ablauf | Beschreibung.
+   --btn-w setzt actions.ts (längster Titel), damit alle Spalten untereinander stehen. */
 .action-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 8px;
+  container-type: inline-size;
 }
 .action-row {
   display: grid;
-  grid-template-columns: max-content 15ch minmax(0, 1fr);
-  column-gap: 1ch;
+  grid-template-columns: var(--btn-w, 28ch) 13ch minmax(0, 1fr);
+  column-gap: 2ch;
   align-items: start;
+}
+.action-row > .tbtn {
+  text-align: left;
+}
+.action-flags {
+  white-space: pre;
+}
+.action-cmd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.seq-step {
+  white-space: nowrap;
+}
+.action-hint {
+  margin-bottom: 8px;
+}
+/* Normal: Beschreibung steht unter dem Befehl (gleiche Spalte).
+   Breites Fenster: Beschreibung als eigene vierte Spalte. */
+.action-desc {
+  grid-column: 3;
+}
+@container (min-width: 128ch) {
+  .action-row {
+    grid-template-columns: var(--btn-w, 28ch) 13ch 36ch minmax(0, 1fr);
+  }
+  .action-desc {
+    grid-column: 4;
+  }
 }
 .quick {
   display: inline-flex;
@@ -639,7 +670,8 @@ p {
 .console.collapsed .console-body {
   display: none;
 }
-.line-cmd {
+.line-cmd,
+.line-step {
   color: var(--bright);
 }
 .line-cmd:not(:first-child) {

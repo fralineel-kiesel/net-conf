@@ -1,25 +1,31 @@
 // Mock-Backend für die Entwicklung im Browser (`npm run dev`).
 // Simuliert Adapterdaten und die (deutsche) Ausgabe von ipconfig/ping.
 //
-// Tipp: Mit `?admin=1` in der URL tut der Mock so, als liefe die App
-// mit Administratorrechten.
+// Tipps (URL-Parameter):
+//   ?admin=1     tut so, als liefe die App mit Administratorrechten
+//   ?fail=renew  jeder Aktions-Schritt, dessen Befehl "renew" enthält, scheitert
+import { actionById, type ActionStep } from "./actions";
 import { events } from "./events";
 import { validateTarget } from "./validate";
-import type {
-  AdapterInfo,
-  DnsRequest,
-  DnsResponse,
-  NeighborEntry,
-  NetCommand,
-  PortTestRequest,
-  PortTestResponse,
-  PublicIp,
-  RouteEntry,
-  WifiInfo,
+import {
+  PING_COUNTS,
+  type ActionId,
+  type AdapterInfo,
+  type DnsRequest,
+  type DnsResponse,
+  type NeighborEntry,
+  type NetCommand,
+  type PortTestRequest,
+  type PortTestResponse,
+  type PublicIp,
+  type RouteEntry,
+  type WifiInfo,
 } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
-let admin = new URLSearchParams(location.search).get("admin") === "1";
+const params = new URLSearchParams(location.search);
+let admin = params.get("admin") === "1";
+const failPattern = params.get("fail");
 
 const ADAPTERS: AdapterInfo[] = [
   {
@@ -111,13 +117,24 @@ export async function restartAsAdmin(): Promise<void> {
   location.href = url.toString();
 }
 
-// Laufende simulierte Befehle (für Abbruch).
-const running = new Map<number, { cancelled: boolean }>();
+// Laufende simulierte Befehle (für Abbruch). `cancels` zählt die Abbruch-Klicks
+// (wie im Backend), damit Wiederherstellungs-Schritte erkennbar sind.
+interface MockRun {
+  cancelled: boolean;
+  cancels: number;
+}
+const running = new Map<number, MockRun>();
 
 export async function cancelCommand(runId: number): Promise<void> {
   const r = running.get(runId);
-  if (r) r.cancelled = true;
+  if (r) {
+    r.cancelled = true;
+    r.cancels++;
+  }
 }
+
+const finished = (runId: number, exitCode: number | null, cancelled: boolean, failedStep: number | null = null) =>
+  events.finished.emit({ runId, exitCode, cancelled, failedStep, error: null });
 
 export async function runCommand(runId: number, command: NetCommand): Promise<void> {
   // Gleiche Prüfung wie im Backend, damit der Mock sich gleich verhält.
@@ -125,26 +142,22 @@ export async function runCommand(runId: number, command: NetCommand): Promise<vo
     const err = validateTarget(command.target);
     if (err) throw err;
   }
-  const state = { cancelled: false };
+  if (command.kind === "ping" && command.count !== null && !(PING_COUNTS as readonly number[]).includes(command.count)) {
+    throw "Ungültige Anzahl. Erlaubt sind 2, 4, 8, 16, 32 oder unbegrenzt.";
+  }
+  const state: MockRun = { cancelled: false, cancels: 0 };
   running.set(runId, state);
   events.started.emit({ runId, commandLine: commandLine(command) });
 
   // Asynchron weiterlaufen lassen, wie das echte Backend.
   void simulate(runId, command, state).then((exitCode) => {
     running.delete(runId);
-    events.finished.emit({ runId, exitCode: state.cancelled ? null : exitCode, cancelled: state.cancelled });
+    finished(runId, state.cancelled ? null : exitCode, state.cancelled, !state.cancelled && exitCode !== 0 ? 1 : null);
   });
 }
 
 function commandLine(c: NetCommand): string {
   switch (c.kind) {
-    case "release":
-    case "renew":
-      return `ipconfig /${c.kind}${c.adapter ? ` "${c.adapter}"` : ""}`;
-    case "flushDns":
-      return "ipconfig /flushdns";
-    case "registerDns":
-      return "ipconfig /registerdns";
     case "ping":
       return `ping ${c.count === null ? "-t" : `-n ${c.count}`} ${c.target.trim()}`;
     case "tracert":
@@ -156,51 +169,168 @@ async function simulate(runId: number, c: NetCommand, st: { cancelled: boolean }
   const out = (line: string, stream: "stdout" | "stderr" = "stdout") =>
     events.output.emit({ runId, stream, line });
 
-  const needsAdmin = c.kind === "release" || c.kind === "renew" || c.kind === "registerDns";
-  if (needsAdmin && !admin) {
-    await delay(150);
-    out("");
-    out("Windows-IP-Konfiguration");
-    out("");
-    out("Der angeforderte Vorgang erfordert erhöhte Rechte.");
-    return 1;
-  }
-
   switch (c.kind) {
-    case "flushDns":
-      await delay(200);
-      out("");
-      out("Windows-IP-Konfiguration");
-      out("");
-      out("Der DNS-Auflösungscache wurde geleert.");
-      return 0;
-    case "registerDns":
-      await delay(300);
-      out("");
-      out("Windows-IP-Konfiguration");
-      out("");
-      out("Die Registrierung der DNS-Ressourceneinträge für alle Adapter dieses Computers wurde initiiert.");
-      out("Eventuelle Fehler werden innerhalb von 15 Minuten in der Ereignisanzeige angezeigt.");
-      return 0;
-    case "release":
-    case "renew":
-      await delay(c.kind === "renew" ? 1500 : 600);
-      out("");
-      out("Windows-IP-Konfiguration");
-      out("");
-      for (const a of ADAPTERS.filter((x) => !c.adapter || x.name === c.adapter)) {
-        out(`Drahtlos-LAN-Adapter ${a.name}:`);
-        out("");
-        out(`   Verbindungsspezifisches DNS-Suffix: ${a.dnsSuffix}`);
-        out(`   IPv4-Adresse  . . . . . . . . . . : ${c.kind === "renew" ? a.ipv4[0]?.address ?? "" : ""}`);
-        out("");
-      }
-      return 0;
     case "ping":
       return simulatePing(c.target.trim(), c.count, st, out);
     case "tracert":
       return simulateTracert(c.target.trim(), c.resolve, st, out);
   }
+}
+
+// ---- Aktionen (gleiche Ablauf-Logik wie execute_steps in runner.rs) -------
+
+/** Befehlszeile eines Schritts mit Adapter, z. B. ipconfig /renew "WLAN" */
+function stepLabel(step: ActionStep, adapter: string | null): string {
+  if (step.waitMs) return `warten (${Math.ceil(step.waitMs / 1000)} s)`;
+  const q = adapter && adapter.includes(" ") ? `"${adapter}"` : (adapter ?? "");
+  const cmd = step.cmd ?? "";
+  if (cmd.includes("<Adapter>")) return cmd.replace("<Adapter>", q);
+  return step.perAdapter && adapter ? `${cmd} ${q}` : cmd;
+}
+
+export async function runAction(runId: number, action: ActionId, adapter: string | null): Promise<void> {
+  const def = actionById(action);
+  if (def.adapter === "none" && adapter) throw `„${def.title}“ gilt immer für alle Adapter.`;
+  if (def.adapter === "required" && !adapter) {
+    throw `Für „${def.title}“ bitte einen konkreten Adapter wählen (nicht „Alle Adapter“).`;
+  }
+  if (adapter && !ADAPTERS.some((a) => a.name === adapter)) throw `Adapter "${adapter}" wurde nicht gefunden.`;
+
+  const steps = def.steps;
+  const title =
+    steps.length === 1
+      ? stepLabel(steps[0], adapter)
+      : `${def.title}${adapter ? ` – Adapter "${adapter}"` : def.adapter === "optional" ? " – alle Adapter" : ""}`;
+  const st: MockRun = { cancelled: false, cancels: 0 };
+  running.set(runId, st);
+  events.started.emit({ runId, commandLine: title });
+  const out = (line: string, stream: "stdout" | "stderr" = "stdout") => events.output.emit({ runId, stream, line });
+
+  void (async () => {
+    let dirty = false;
+    let failed: { step: number; code: number } | null = null;
+    let lastCode = 0;
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      const stopping = st.cancelled || failed !== null;
+      if (stopping && !(step.restore && dirty)) continue;
+      if (step.disruptive) dirty = true;
+      const label = stepLabel(step, adapter);
+      if (steps.length > 1) {
+        events.step.emit({ runId, index: i + 1, total: steps.length, label, recovery: stopping });
+      }
+      if (step.waitMs) {
+        const before = st.cancels;
+        for (let w = 0; w < step.waitMs / 100 && st.cancels === before; w++) await delay(100);
+        continue;
+      }
+      const before = st.cancels;
+      const code = await simulateStep(label, step, st, out);
+      const killed = st.cancels !== before;
+      lastCode = code;
+      if (code === 0) {
+        if (step.restore) dirty = false;
+      } else if (!killed && failed === null) {
+        failed = { step: i + 1, code };
+      }
+    }
+    running.delete(runId);
+    finished(runId, failed ? failed.code : lastCode, st.cancelled, failed ? failed.step : null);
+  })();
+}
+
+/** Simuliert die (deutsche) Ausgabe eines Aktions-Schritts. */
+async function simulateStep(
+  label: string,
+  step: ActionStep,
+  st: MockRun,
+  out: (line: string, stream?: "stdout" | "stderr") => void,
+): Promise<number> {
+  const before = st.cancels;
+  const wait = async (ms: number) => {
+    for (let w = 0; w < ms / 100 && st.cancels === before; w++) await delay(100);
+    return st.cancels !== before;
+  };
+  const cmd = step.cmd ?? "";
+  const noAdminNeeded = cmd.includes("/flushdns") || cmd.includes("/displaydns");
+  if (!admin && !noAdminNeeded) {
+    await wait(150);
+    out("");
+    out("Der angeforderte Vorgang erfordert erhöhte Rechte.");
+    return 1;
+  }
+  if (failPattern && label.includes(failPattern)) {
+    if (await wait(800)) return 1;
+    out("");
+    out("Windows-IP-Konfiguration");
+    out("");
+    out("Bei der Erneuerung der Schnittstelle WLAN ist folgender Fehler aufgetreten:");
+    out("Es konnte keine Verbindung mit Ihrem DHCP-Server hergestellt werden. Das Zeitlimit wurde überschritten.");
+    return 1;
+  }
+
+  const header = () => {
+    out("");
+    out("Windows-IP-Konfiguration");
+    out("");
+  };
+  if (cmd.includes("/release") || cmd.includes("/renew")) {
+    const renew = cmd.includes("/renew");
+    if (await wait(renew ? 1500 : 600)) return 1;
+    header();
+    const adapterArg = label.replace(cmd, "").trim().replace(/^"|"$/g, "");
+    for (const a of ADAPTERS.filter((x) => !adapterArg || x.name === adapterArg)) {
+      if (!a.connected) {
+        out(`Für den Adapter ${a.name} kann kein Vorgang ausgeführt werden, da das Medium getrennt ist.`);
+        out("");
+        continue;
+      }
+      out(`Drahtlos-LAN-Adapter ${a.name}:`);
+      out("");
+      out(`   Verbindungsspezifisches DNS-Suffix: ${a.dnsSuffix}`);
+      out(`   IPv4-Adresse  . . . . . . . . . . : ${renew ? (a.ipv4[0]?.address ?? "") : ""}`);
+      out("");
+    }
+    return 0;
+  }
+  await wait(250);
+  if (cmd.includes("/flushdns")) {
+    header();
+    out("Der DNS-Auflösungscache wurde geleert.");
+  } else if (cmd.includes("/registerdns")) {
+    header();
+    out("Die Registrierung der DNS-Ressourceneinträge für alle Adapter dieses Computers wurde initiiert.");
+    out("Eventuelle Fehler werden innerhalb von 15 Minuten in der Ereignisanzeige angezeigt.");
+  } else if (cmd.includes("/displaydns")) {
+    header();
+    for (const [name, ip] of [["github.com", "140.82.121.4"], ["fritz.box", "192.168.1.1"]]) {
+      out(`    ${name}`);
+      out("    ----------------------------------------");
+      out(`    Eintragsname . . . . . : ${name}`);
+      out("    Eintragstyp  . . . . . : 1");
+      out("    Gültigkeitsdauer . . . : 241");
+      out("    Datenlänge . . . . . . : 4");
+      out("    Abschnitt  . . . . . . : Antwort");
+      out(`    (Host-)A-Eintrag . . . : ${ip}`);
+      out("");
+    }
+  } else if (cmd.startsWith("nbtstat -RR")) {
+    out("    Die NetBIOS-Namen, die für diesen Computer registriert sind, wurden freigegeben,");
+    out("    und die Aktualisierung wurde gestartet.");
+  } else if (cmd.startsWith("nbtstat -R")) {
+    out("    Erfolgreiche Löschung und Vorausladen der NBT-Remotecache-Namenstabelle.");
+  } else if (cmd.startsWith("netsh winsock")) {
+    out("");
+    out("Der Winsock-Katalog wurde erfolgreich zurückgesetzt.");
+    out("Sie müssen den Computer neu starten, um den Reset abzuschließen.");
+  } else if (cmd.startsWith("netsh int ip")) {
+    out("Zurücksetzen von Global, OK!");
+    out("Zurücksetzen von Schnittstelle, OK!");
+    out("Zurücksetzen von Unicastadresse, OK!");
+    out("Starten Sie den Computer neu, um diese Aktion abzuschließen.");
+  }
+  // arp -d * und netsh interface set interface geben bei Erfolg nichts aus
+  return 0;
 }
 
 async function simulateTracert(

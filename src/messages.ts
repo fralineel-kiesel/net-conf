@@ -1,35 +1,22 @@
 // Übersetzt fehlgeschlagene Befehle in verständliche deutsche Meldungen.
 // Die Rohausgabe bleibt trotzdem in der Konsole sichtbar.
+//
+// Hinweis: Hier wird NICHT nach Erfolg geparst (sprachabhängig!), nur bei
+// einem Fehler nach bekannten Stichwörtern gesucht, um die Meldung zu verbessern.
+import type { ActionDef } from "./actions";
 import type { NetCommand } from "./types";
 
 export const ADMIN_NEEDED = "Dafür werden Administratorrechte benötigt.";
 
-export function explainFailure(
-  command: NetCommand,
-  exitCode: number | null,
-  lines: string[],
-  isAdmin: boolean,
-): string {
-  const text = lines.join("\n").toLowerCase();
+const needsElevation = (text: string) =>
+  text.includes("erhöhte rechte") || text.includes("elevation") || text.includes("zugriff verweigert");
 
-  // Deutsch: "erfordert erhöhte Rechte", Englisch: "requires elevation"
-  if (text.includes("erhöhte rechte") || text.includes("elevation") || text.includes("zugriff verweigert")) {
-    return ADMIN_NEEDED;
-  }
+/** Ping / Traceroute */
+export function explainFailure(command: NetCommand, exitCode: number | null, lines: string[]): string {
+  const text = lines.join("\n").toLowerCase();
+  if (needsElevation(text)) return ADMIN_NEEDED;
 
   switch (command.kind) {
-    case "release":
-    case "renew":
-      if (!isAdmin) return ADMIN_NEEDED;
-      if (text.includes("medium getrennt") || text.includes("media disconnected")) {
-        return "Der Adapter ist nicht verbunden (Kabel/WLAN getrennt).";
-      }
-      return command.kind === "renew"
-        ? "Die IP-Adresse konnte nicht erneuert werden. Ist der Adapter verbunden und auf DHCP eingestellt? Details in der Konsole."
-        : "Die IP-Adresse konnte nicht freigegeben werden. Details in der Konsole.";
-    case "registerDns":
-      if (!isAdmin) return ADMIN_NEEDED;
-      break;
     case "tracert":
       if (text.includes("nicht aufgelöst") || text.includes("unable to resolve") || text.includes("nicht finden")) {
         return `Der Host „${command.target.trim()}“ wurde nicht gefunden. Bitte Namen prüfen.`;
@@ -42,4 +29,30 @@ export function explainFailure(
       return "Keine Antwort vom Ziel erhalten.";
   }
   return `Der Befehl ist fehlgeschlagen (Code ${exitCode ?? "?"}). Details stehen in der Konsole.`;
+}
+
+/** Grund für einen gescheiterten Aktions-Schritt (ohne "Schritt x/y"). */
+export function explainActionFailure(
+  def: ActionDef,
+  adapter: string | null,
+  exitCode: number | null,
+  lines: string[],
+  isAdmin: boolean,
+): string {
+  const text = lines.join("\n").toLowerCase();
+  // Bekannt: "netsh int ip reset" meldet auch als Admin oft "Zugriff verweigert"
+  // für einen einzelnen Registry-Schlüssel – der Rest wurde trotzdem zurückgesetzt.
+  if (def.id === "tcpipReset" && isAdmin && text.includes("zugriff")) {
+    return "Ein Teil liess sich nicht zurücksetzen (Zugriff verweigert). Das ist bei Windows häufig – trotzdem neu starten.";
+  }
+  if (needsElevation(text) || (def.admin && !isAdmin)) return ADMIN_NEEDED;
+  if (text.includes("dhcp-server") || text.includes("dhcp server")) {
+    return "Der DHCP-Server antwortet nicht. Kabel/WLAN prüfen oder den Router neu starten.";
+  }
+  if (text.includes("medium getrennt") || text.includes("media disconnected")) {
+    return adapter
+      ? "Der Adapter ist nicht verbunden (Kabel/WLAN getrennt)."
+      : "Mindestens ein Adapter ist getrennt (Kabel/WLAN) – bei den verbundenen kann es trotzdem geklappt haben.";
+  }
+  return `Code ${exitCode ?? "?"} – Details stehen in der Konsole.`;
 }
