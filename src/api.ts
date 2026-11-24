@@ -4,7 +4,21 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { events } from "./events";
 import * as mock from "./mock";
-import type { AdapterInfo, FinishedEvent, NetCommand, OutputEvent, StartedEvent } from "./types";
+import type {
+  AdapterInfo,
+  DnsRequest,
+  DnsResponse,
+  FinishedEvent,
+  NeighborEntry,
+  NetCommand,
+  OutputEvent,
+  PortTestRequest,
+  PortTestResponse,
+  PublicIp,
+  RouteEntry,
+  StartedEvent,
+  WifiInfo,
+} from "./types";
 
 /** true, wenn wir in der echten Tauri-App laufen. */
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -39,7 +53,55 @@ export const backend = {
 
   cancelCommand: (runId: number): Promise<void> =>
     isTauri ? invoke<void>("cancel_command", { runId }) : mock.cancelCommand(runId),
+
+  // ---- Phase 2 ----
+  dnsQuery: (request: DnsRequest): Promise<DnsResponse> =>
+    isTauri ? invoke<DnsResponse>("dns_query", { request }) : mock.dnsQuery(request),
+
+  portTest: (request: PortTestRequest): Promise<PortTestResponse> =>
+    isTauri ? invoke<PortTestResponse>("port_test", { request }) : mock.portTest(request),
+
+  getArpTable: (): Promise<NeighborEntry[]> =>
+    isTauri ? invoke<NeighborEntry[]>("get_arp_table") : mock.getArpTable(),
+
+  getRouteTable: (): Promise<RouteEntry[]> =>
+    isTauri ? invoke<RouteEntry[]>("get_route_table") : mock.getRouteTable(),
+
+  getWifi: (): Promise<WifiInfo[]> => (isTauri ? invoke<WifiInfo[]>("get_wifi") : mock.getWifi()),
+
+  /** Öffentliche IP über ipify.org – nur auf ausdrücklichen Klick aufrufen! */
+  getPublicIp: (): Promise<PublicIp> => (isTauri ? fetchPublicIp() : mock.getPublicIp()),
 };
+
+/**
+ * Öffentliche IP direkt aus dem WebView abfragen (HTTPS). Vorteil: kein
+ * HTTP-/TLS-Crate im Backend nötig, und WebView2 nutzt automatisch den
+ * Windows-Proxy (wichtig in Firmennetzen). Erlaubt in der CSP (tauri.conf.json).
+ */
+async function fetchPublicIp(): Promise<PublicIp> {
+  const get = async (url: string, re: RegExp): Promise<string | null> => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+      if (!res.ok) return null;
+      const text = (await res.text()).trim();
+      return re.test(text) ? text : null; // nur echte IPs anzeigen
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const [ipv4, ipv6] = await Promise.all([
+    get("https://api.ipify.org", /^\d{1,3}(\.\d{1,3}){3}$/),
+    get("https://api6.ipify.org", /^[0-9a-fA-F:]+$/),
+  ]);
+  if (!ipv4 && !ipv6) {
+    throw "Die öffentliche IP konnte nicht ermittelt werden (keine Internetverbindung oder ipify.org blockiert).";
+  }
+  return { ipv4, ipv6 };
+}
 
 /** Fehler aus invoke() (meist ein String vom Backend) lesbar machen. */
 export function errorText(err: unknown): string {

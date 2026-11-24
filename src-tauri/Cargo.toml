@@ -1,6 +1,6 @@
 [package]
 name = "net-conf"
-version = "0.1.0"
+version = "0.2.0"
 description = "Net-Conf – Netzwerk-Helfer für Windows 11"
 authors = ["Net-Conf"]
 edition = "2021"
@@ -28,6 +28,7 @@ features = [
   "Win32_Globalization",
   "Win32_NetworkManagement_IpHelper",
   "Win32_NetworkManagement_Ndis",
+  "Win32_NetworkManagement_WiFi",
   "Win32_Networking_WinSock",
   "Win32_Security",
   "Win32_System_Threading",

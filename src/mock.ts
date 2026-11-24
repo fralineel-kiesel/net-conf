@@ -5,7 +5,18 @@
 // mit Administratorrechten.
 import { events } from "./events";
 import { validateTarget } from "./validate";
-import type { AdapterInfo, NetCommand } from "./types";
+import type {
+  AdapterInfo,
+  DnsRequest,
+  DnsResponse,
+  NeighborEntry,
+  NetCommand,
+  PortTestRequest,
+  PortTestResponse,
+  PublicIp,
+  RouteEntry,
+  WifiInfo,
+} from "./types";
 
 const now = Math.floor(Date.now() / 1000);
 let admin = new URLSearchParams(location.search).get("admin") === "1";
@@ -110,7 +121,7 @@ export async function cancelCommand(runId: number): Promise<void> {
 
 export async function runCommand(runId: number, command: NetCommand): Promise<void> {
   // Gleiche Prüfung wie im Backend, damit der Mock sich gleich verhält.
-  if (command.kind === "ping") {
+  if (command.kind === "ping" || command.kind === "tracert") {
     const err = validateTarget(command.target);
     if (err) throw err;
   }
@@ -136,6 +147,8 @@ function commandLine(c: NetCommand): string {
       return "ipconfig /registerdns";
     case "ping":
       return `ping ${c.count === null ? "-t" : `-n ${c.count}`} ${c.target.trim()}`;
+    case "tracert":
+      return `tracert -h 30 -w 1000 ${c.resolve ? "" : "-d "}${c.target.trim()}`;
   }
 }
 
@@ -185,7 +198,51 @@ async function simulate(runId: number, c: NetCommand, st: { cancelled: boolean }
       return 0;
     case "ping":
       return simulatePing(c.target.trim(), c.count, st, out);
+    case "tracert":
+      return simulateTracert(c.target.trim(), c.resolve, st, out);
   }
+}
+
+async function simulateTracert(
+  target: string,
+  resolve: boolean,
+  st: { cancelled: boolean },
+  out: (l: string) => void,
+): Promise<number> {
+  await delay(150);
+  if (target.endsWith(".invalid")) {
+    out(`Der Zielname ${target} konnte nicht aufgelöst werden.`);
+    return 1;
+  }
+  const ip = /^[\d.]+$/.test(target) ? target : "142.250.185.78";
+  out("");
+  out(`Routenverfolgung zu ${ip === target ? ip : `${target} [${ip}]`} über maximal 30 Hops`);
+  out("");
+  const hops: [string, string | null, number][] = [
+    ["192.168.1.1", "fritz.box", 1],
+    ["100.64.0.1", null, 8],
+    ["", null, 0], // antwortet nicht
+    ["62.2.17.33", "ip-62-2-17-33.static.init7.net", 11],
+    ["72.14.196.21", null, 13],
+    [ip, ip === target ? null : target, 14],
+  ];
+  const fmt = (ms: number) => (ms < 1 ? "<1 ms" : `${ms} ms`).padStart(6);
+  for (let i = 0; i < hops.length; i++) {
+    for (let w = 0; w < (hops[i][0] ? 4 : 12) && !st.cancelled; w++) await delay(100);
+    if (st.cancelled) return 0;
+    const [addr, name, base] = hops[i];
+    const n = String(i + 1).padStart(3);
+    if (!addr) {
+      out(`${n}     *        *        *     Zeitüberschreitung der Anforderung.`);
+      continue;
+    }
+    const t = () => fmt(Math.max(0, base + Math.round(Math.random() * 4 - 1)));
+    const host = resolve && name ? `${name} [${addr}]` : addr;
+    out(`${n}  ${t()}  ${t()}  ${t()}  ${host}`);
+  }
+  out("");
+  out("Ablaufverfolgung beendet.");
+  return 0;
 }
 
 async function simulatePing(
@@ -232,4 +289,118 @@ async function simulatePing(
     out(`    Minimum = ${Math.min(...times)}ms, Maximum = ${Math.max(...times)}ms, Mittelwert = ${avg}ms`);
   }
   return recv > 0 ? 0 : 1;
+}
+
+// ---- Phase 2 ---------------------------------------------------------------
+
+export async function dnsQuery(req: DnsRequest): Promise<DnsResponse> {
+  await delay(180);
+  const name = req.name.trim().toLowerCase().replace(/\.$/, "");
+  if (!name) throw "Bitte einen Namen eingeben (z. B. example.com).";
+  if (!/^[a-z0-9._:-]+$/.test(name)) throw "Ungültiger Name. Erlaubt sind Buchstaben (a–z), Ziffern, '-', '_' und Punkte.";
+  const server = req.server?.trim() || "192.168.1.1";
+  const base = { server, queryName: name, recordType: req.recordType, authoritative: false, truncated: false, elapsedMs: 9 + Math.round(Math.random() * 20), authority: [] };
+  if (name.endsWith(".invalid")) {
+    return { ...base, rcode: 3, rcodeText: "Domain existiert nicht (NXDOMAIN)", answers: [], authority: [{ name: "invalid", recordType: "SOA", ttl: 900, data: "a.root-servers.net nstld.verisign-grs.com (Serial 2026112400, Minimum-TTL 86400s)" }] };
+  }
+  const rec = (data: string, recordType = req.recordType, ttl = 300) => ({ name, recordType, ttl, data });
+  const answers: Record<string, ReturnType<typeof rec>[]> = {
+    A: [rec("142.250.185.78"), rec("142.250.185.110")],
+    AAAA: [rec("2a00:1450:4001:82b::200e")],
+    CNAME: [rec(`www.${name}.cdn.example.net`)],
+    MX: [rec(`10 smtp.${name}`, "MX", 3600), rec(`20 smtp2.${name}`, "MX", 3600)],
+    NS: [rec(`ns1.${name}`, "NS", 86400), rec(`ns2.${name}`, "NS", 86400)],
+    TXT: [rec('"v=spf1 include:_spf.example.net ~all"'), rec('"google-site-verification=abc123"')],
+    PTR: [rec("one.one.one.one", "PTR", 1800)],
+    SOA: [rec(`ns1.${name} hostmaster.${name} (Serial 2026112401, Minimum-TTL 300s)`, "SOA", 3600)],
+  };
+  return { ...base, rcode: 0, rcodeText: "OK", answers: answers[req.recordType] ?? [] };
+}
+
+export async function portTest(req: PortTestRequest): Promise<PortTestResponse> {
+  const host = req.host.trim();
+  const err = validateTarget(host);
+  if (err) throw err;
+  if (req.ports.length === 0) throw "Bitte mindestens einen Port angeben.";
+  const timeout = req.timeoutMs ?? 2000;
+  const results = [...new Set(req.ports)].sort((a, b) => a - b).map((port) => {
+    if ([80, 443, 53].includes(port)) return { port, status: "open" as const, ms: 8 + Math.round(Math.random() * 15), message: null };
+    if ([22, 3389].includes(port)) return { port, status: "closed" as const, ms: 9, message: null };
+    return { port, status: "filtered" as const, ms: null, message: null };
+  });
+  // Gefilterte Ports warten bis zum Timeout – wie in echt
+  await delay(results.some((r) => r.status === "filtered") ? Math.min(timeout, 1500) : 200);
+  return { host, address: /^[\d.]+$/.test(host) ? host : "142.250.185.78", results };
+}
+
+export async function getArpTable(): Promise<NeighborEntry[]> {
+  await delay(120);
+  const e = (address: string, mac: string, state: string, iface = "WLAN", family: 4 | 6 = 4) => ({
+    address, family, mac, interface: iface, state, permanent: state === "statisch",
+  });
+  return [
+    e("192.168.1.1", "3C-A6-2F-11-22-33", "erreichbar"),
+    e("192.168.1.20", "B8-27-EB-44-55-66", "veraltet"),
+    e("192.168.1.35", "", "unerreichbar"),
+    e("192.168.1.255", "FF-FF-FF-FF-FF-FF", "statisch"),
+    e("224.0.0.22", "01-00-5E-00-00-16", "statisch"),
+    e("224.0.0.251", "01-00-5E-00-00-FB", "statisch"),
+    e("239.255.255.250", "01-00-5E-7F-FF-FA", "statisch"),
+    e("255.255.255.255", "FF-FF-FF-FF-FF-FF", "statisch"),
+    e("fe80::3ea6:2fff:fe11:2233", "3C-A6-2F-11-22-33", "erreichbar", "WLAN", 6),
+    e("ff02::1:2", "33-33-00-01-00-02", "statisch", "WLAN", 6),
+    e("172.27.80.255", "FF-FF-FF-FF-FF-FF", "statisch", "vEthernet (WSL)"),
+  ];
+}
+
+export async function getRouteTable(): Promise<RouteEntry[]> {
+  await delay(120);
+  const r = (destination: string, gateway: string, iface: string, metric: number, family: 4 | 6 = 4) => ({
+    destination, prefixLen: Number(destination.split("/")[1]), gateway, interface: iface, metric, family,
+  });
+  return [
+    r("0.0.0.0/0", "192.168.1.1", "WLAN", 35),
+    r("127.0.0.0/8", "", "Loopback Pseudo-Interface 1", 331),
+    r("127.0.0.1/32", "", "Loopback Pseudo-Interface 1", 331),
+    r("172.27.80.0/20", "", "vEthernet (WSL)", 5256),
+    r("192.168.1.0/24", "", "WLAN", 291),
+    r("192.168.1.42/32", "", "WLAN", 291),
+    r("192.168.1.255/32", "", "WLAN", 291),
+    r("224.0.0.0/4", "", "WLAN", 291),
+    r("255.255.255.255/32", "", "WLAN", 291),
+    r("::/0", "fe80::3ea6:2fff:fe11:2233", "WLAN", 291, 6),
+    r("::1/128", "", "Loopback Pseudo-Interface 1", 331, 6),
+    r("2a02:1210:5e0c:a100::/64", "", "WLAN", 291, 6),
+    r("fe80::/64", "", "WLAN", 291, 6),
+  ];
+}
+
+export async function getWifi(): Promise<WifiInfo[]> {
+  return [
+    {
+      interfaceId: "{A1B2C3D4-0001}",
+      description: "Intel(R) Wi-Fi 6 AX201 160MHz",
+      connected: true,
+      state: "verbunden",
+      ssid: "FRITZ!Box 7590 XY",
+      bssid: "3C-A6-2F-11-22-34",
+      profile: "FRITZ!Box 7590 XY",
+      signalQuality: 78,
+      rssiDbm: -58,
+      channel: 36,
+      frequencyMhz: 5180,
+      band: "5 GHz",
+      phy: "802.11ax (Wi-Fi 6/6E)",
+      rxMbps: 866.7,
+      txMbps: 721.6,
+      auth: "WPA2-Personal",
+      cipher: "AES (CCMP)",
+      error: null,
+    },
+  ];
+}
+
+export async function getPublicIp(): Promise<PublicIp> {
+  await delay(400);
+  return { ipv4: "203.0.113.42", ipv6: "2a02:1210:5e0c:a100:1c2d:3e4f:5a6b:7c8d" };
 }

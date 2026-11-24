@@ -1,7 +1,8 @@
 // Mini-Helfer zum Erzeugen von DOM-Elementen – ersetzt ein Framework.
 //   h("button", { class: "btn", onclick: () => … }, "Text")
+import logoSvg from "../../assets/logo.svg?raw";
 
-type Child = Node | string | number | null | undefined | false;
+export type Child = Node | string | number | null | undefined | false;
 type Props = Record<string, unknown>;
 
 export function h<K extends keyof HTMLElementTagNameMap>(
@@ -35,33 +36,12 @@ export function replaceChildren(el: Element, ...children: Child[]): void {
   append(el, children);
 }
 
-// Linien-Icons (24×24, Strich = currentColor). Statischer, eigener Inhalt –
-// daher ist innerHTML hier unbedenklich.
-const ICONS = {
-  refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
-  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
-  trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/>',
-  chevron: '<path d="M6 15l6-6 6 6"/>',
-  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
-  zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
-  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
-  play: '<path d="M7 4l13 8-13 8z"/>',
-  stop: '<rect x="6" y="6" width="12" height="12" rx="1.5"/>',
-  shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
-  unplug: '<path d="M9 2v5M15 2v5"/><path d="M6 7h12v4a6 6 0 0 1-12 0z"/><path d="M12 17v5"/><path d="M3 3l18 18"/>',
-  eraser: '<path d="M7 21h13"/><path d="M5.5 15.5l9-9a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L13 18H8z"/>',
-  upload: '<path d="M12 20V9"/><path d="M7 13l5-5 5 5"/><path d="M5 4h14"/>',
-  terminal: '<path d="M4 17l6-5-6-5"/><path d="M12 19h8"/>',
-} as const;
-
-export type IconName = keyof typeof ICONS;
-
-export function icon(name: IconName, cls = "icon"): HTMLSpanElement {
+/** Das App-Logo (assets/logo.svg) als Inline-SVG – eine Quelle für alles. */
+export function logo(): HTMLSpanElement {
   const span = document.createElement("span");
-  span.className = cls;
+  span.className = "logo";
   span.setAttribute("aria-hidden", "true");
-  span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+  span.innerHTML = logoSvg; // eigene, statische Datei – unbedenklich
   return span;
 }
 

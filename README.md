@@ -1,14 +1,24 @@
 # Net-Conf
 
-Netzwerk-Helfer für Windows 11 im Terminal-Look.
+Netzwerk-Helfer für Windows 11 im Terminal-Look (TUI wie htop/btop – aber mit Maus bedienbar).
 
 Net-Conf zeigt die Infos von `ipconfig /all` übersichtlich als Karten an
 und bietet Buttons für häufige Netzwerk-Befehle:
 
-- **Übersicht** – eine Karte pro Adapter (IPv4/IPv6, Gateway, DNS, DHCP, Lease, MAC …). Klick auf einen Wert kopiert ihn.
+- **Übersicht** – ein Panel pro Adapter (IPv4/IPv6, Gateway, DNS, DHCP, Lease, MAC …), beim WLAN-Adapter zusätzlich SSID, Signal, Kanal/Band und Sicherheit. Öffentliche IP auf Knopfdruck. Klick auf einen Wert kopiert ihn.
 - **Aktionen** – `ipconfig /release`, `/renew`, `/flushdns`, `/registerdns` per Klick.
-- **Tests** – Ping mit Live-Statistik und Latenz-Verlauf.
+- **Tests** – Ping mit Live-Statistik, Traceroute mit Hop-Tabelle, DNS-Abfrage (wie nslookup) und Port-Test.
+- **Tabellen** – ARP-Tabelle und Routing-Tabelle mit Filter.
+- **Einstellungen** – Akzentfarbe, Standard-Ping-Ziel, Konsolen-Höhe, Start-Ansicht.
 - **Konsole** – die Rohausgabe aller Befehle live mitlesen.
+
+Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 = nächster Reiter) · **F4** Tabellen · **F10** Einstellungen · **F5** Neu laden.
+
+### Hinweise
+
+- **WLAN-Details unter Windows 11:** Seit Version 24H2 gibt Windows SSID und Access-Point-Infos nur frei, wenn Desktop-Apps den Standort verwenden dürfen: *Einstellungen → Datenschutz und Sicherheit → Standort → „Desktop-Apps den Zugriff auf Ihren Standort erlauben“*. Ohne das zeigt Net-Conf einen Hinweis statt der Daten.
+- **Öffentliche IP:** wird nur auf Klick über den Dienst [ipify.org](https://www.ipify.org) abgefragt, nie automatisch.
+- **DNS-Abfrage:** fragt den gewählten DNS-Server direkt (wie `nslookup`), nicht den Windows-DNS-Cache.
 
 Gebaut mit [Tauri v2](https://tauri.app) (Rust) und reinem TypeScript – klein, schnell, ohne Installation lauffähig.
 
@@ -47,6 +57,16 @@ Ergebnis:
 - `src-tauri/target/release/bundle/nsis/*-setup.exe` (Installer)
 
 **Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte.
+
+## Logo / Icons
+
+Die Quelle ist `assets/logo.svg`. Nach Änderungen die Icons neu erzeugen:
+
+```bash
+npx tauri icon assets/logo.svg -o src-tauri/icons
+```
+
+(Die erzeugten Ordner `android/` und `ios/` werden nicht gebraucht.)
 
 ## Release erstellen
 

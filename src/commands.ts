@@ -52,3 +52,14 @@ export async function startCommand(
   }
   return { runId, done, cancel: () => backend.cancelCommand(runId) };
 }
+
+// Für Werkzeuge ohne eigenen Prozess (DNS, Port-Test, Tabellen): Ergebnis
+// trotzdem in der Konsole protokollieren – im gleichen Format wie Befehle.
+let logId = 0xf000_0000;
+
+export function logToConsole(commandLine: string, lines: string[], exitCode = 0): void {
+  const runId = logId++;
+  events.started.emit({ runId, commandLine });
+  for (const line of lines) events.output.emit({ runId, stream: "stdout", line });
+  events.finished.emit({ runId, exitCode, cancelled: false });
+}
