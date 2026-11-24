@@ -2,14 +2,16 @@
 
 ## Ziel
 Net-Conf ist ein Netzwerk-Helfer für den Arbeitsalltag unter **Windows 11 (x64)**.
-Er zeigt die Infos von `ipconfig /all` als Karten und bietet Buttons für häufige
-Netzwerk-Befehle. Look: modernes Terminal, aber mit Maus-Bedienung.
+Er zeigt die Infos von `ipconfig /all` als Panels, bietet Buttons für häufige
+Netzwerk-Befehle und Diagnose-Werkzeuge (Ping, Traceroute, DNS, Port-Test,
+ARP/Routen, WLAN). Look: TUI wie htop/btop, aber mit Maus-Bedienung.
 Der Entwickler ist Informatik-Lehrling (Systemtechnik), kein Rust-Profi:
 Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** kommentieren.
 
 ## Stack
 - **Tauri v2** (Rust-Backend), Vite, **TypeScript ohne Framework** (kein React/Vue/Angular).
 - Rust-Crates bewusst minimal: `tauri`, `serde`, `serde_json`, `windows-sys` (nur Windows).
+  Kein HTTP-/TLS-Crate: HTTPS-Abfragen (öffentliche IP) macht das WebView per `fetch`.
 - UI-Sprache: **Deutsch**.
 - Ziel: kleine .exe, wenig RAM, Start < 1 s, keine unnötigen Abhängigkeiten.
 
@@ -19,7 +21,9 @@ Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** komme
 - Lokal prüfbar:
   - `npm run build` – Typecheck + Frontend-Build
   - `npm run dev` – UI im Browser mit Mock-Daten (`src/mock.ts`), `?admin=1` simuliert Adminrechte
-  - `cd src-tauri && cargo test` – Rust-Tests (Validierung). Unter Linux braucht das `libwebkit2gtk-4.1-dev`.
+  - `cd src-tauri && cargo test` – Rust-Tests (Validierung, DNS-Parser, Port-Test). Unter Linux braucht das `libwebkit2gtk-4.1-dev`.
+    `cargo test -- --ignored` macht zusätzlich echte DNS-Abfragen (braucht Netz; in der Cloud-Sandbox
+    werden nur freigegebene Hosts wie github.com aufgelöst).
   - `cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc` – **typprüft den Windows-Code**
     (vorher `rustup target add x86_64-pc-windows-msvc`; Warnung „GNU compiler is not supported“ ist harmlos).
 - `frontendDist` (`dist/`) muss existieren, bevor `cargo check` läuft → vorher `npm run build`.
@@ -32,14 +36,21 @@ src-tauri/src/
   adapters.rs  Adapter via GetAdaptersAddresses + GetAdaptersInfo (Lease-Zeiten), Mock für Nicht-Windows
   runner.rs    Whitelist-Befehle (NetCommand), Validierung, Prozess-Start, Streaming, Abbruch
   system.rs    Hostname, Admin-Erkennung (Token-Elevation), Neustart via ShellExecuteW "runas"
+  dns.rs       eigener kleiner DNS-Client über UDP (wie nslookup), reines Rust, ohne unsafe
+  porttest.rs  TCP-Connect-Test, parallel pro Port (offen/geschlossen/gefiltert)
+  tables.rs    ARP (GetIpNetTable2) und Routen (GetIpForwardTable2)
+  wifi.rs      WLAN über wlanapi.dll (SSID, Signal, Kanal, Band, Sicherheit)
 src/
   main.ts      Layout, Navigation, Kopfzeile
   api.ts       Brücke zu Tauri – fällt auf mock.ts zurück, wenn keine Tauri-API da ist
   events.ts    Event-Verteiler (cmd-started / cmd-output / cmd-finished)
   commands.ts  startCommand(): runId vergeben, Ausgabe sammeln, Promise bis Ende
   ping.ts      sprachunabhängiger Ping-Parser + Statistik
+  tracert.ts   sprachunabhängiger Traceroute-Parser (Hop-Zeilen: Nummer, 3× ms/*, Host)
   messages.ts  verständliche deutsche Fehlermeldungen
-  views/       overview.ts, actions.ts, tests.ts
+  settings.ts  Einstellungen (localStorage) + applySettings() → CSS-Variablen
+  views/       overview.ts (inkl. öffentliche IP, WLAN), actions.ts, tables.ts, settings.ts,
+               tests.ts (Reiter) + tests/ping.ts, tracert.ts, dns.ts, port.ts
   ui/          dom.ts (h()-Helfer, Logo, Clipboard), widgets.ts (TUI-Bausteine),
                statusbar.ts (Rückmeldungen statt Toasts), console.ts, modal.ts,
                blockgraph.ts (Latenz-Graph aus Blockzeichen), admin.ts
@@ -56,6 +67,14 @@ assets/logo.svg  Quelle des Logos (Icons + Inline-SVG in der Kopfzeile)
   (`MultiByteToWideChar(CP_OEMCP)` – `encoding_rs` kennt cp850 nicht).
 - Windows-spezifischen Code mit `#[cfg(windows)]` kapseln, für andere Systeme einfachen Fallback.
 - Die runId vergibt das Frontend, damit Events schon vor der invoke-Antwort zugeordnet werden können.
+- Blockierende Backend-Arbeit (DNS, Port-Test, Tabellen, WLAN) läuft über `spawn_blocking`.
+- C-Arrays variabler Länge (`Table: [ROW; 1]`) über `addr_of!` vom Rohzeiger lesen,
+  nicht über eine Referenz; Speicher immer freigeben (FreeMibTable, WlanFreeMemory, Drop-Guards).
+- Werkzeuge ohne eigenen Prozess protokollieren ihr Ergebnis mit `logToConsole()` in der Konsole.
+- Externe Dienste nie automatisch kontaktieren – die öffentliche IP (ipify.org) nur auf Klick.
+  Neue externe Hosts müssen in die CSP (`connect-src` in `tauri.conf.json`).
+- WLAN ab Windows 11 24H2: SSID/BSSID nur mit Standortzugriff für Desktop-Apps →
+  verständlicher Hinweis statt Fehlercode (`wifi::LOCATION_HINT`).
 - Konservativ coden: lieber einfach und sicher kompilierend als clever.
 
 ## Design-Regeln: TUI-Look (wie htop, btop, lazygit)
@@ -72,7 +91,8 @@ Verboten:
 Farben (nur über CSS-Variablen in `src/styles.css`):
 - Hintergrund fast schwarz `--bg #0b0e12`, Schrift hellgrau `--text`.
 - Labels gedimmt `--dim`, Werte/Titel hell `--bright`.
-- **Eine** Akzentfarbe Cyan `--accent #22d3ee` – NUR für Interaktives (Hover, Fokus, aktiver Menüpunkt, Auswahl).
+- **Eine** Akzentfarbe, Standard Cyan `--accent #22d3ee` – NUR für Interaktives (Hover, Fokus, aktiver Menüpunkt, Auswahl).
+  In den Einstellungen wählbar (Cyan, Bernstein, Magenta, Blau, Weiss) – **nie Grün/Rot**. Das Logo bleibt immer Cyan.
 - Grün `--ok` / Rot `--err` NUR als **Textfarbe für Status-Wörter** (`.tag-ok`, `.tag-err`), nie als Punkt, Linie, Rahmen oder Hintergrund.
 - Linien: 1px dunkelgrau `--line`. Statusleiste etwas heller (`--bar`).
 
@@ -84,11 +104,15 @@ Bausteine (`src/ui/widgets.ts`) – immer diese verwenden:
 - `kvRow()` – `Label . . . . : Wert` (Punkte-Füller per CSS, Label-Spalte 18ch).
 - `prompt()` – Überschrift im Prompt-Stil `$ ipconfig /all █`.
 - `tag()` – Status als Text in eckigen Klammern: `[ONLINE]`, `[OFFLINE]`, `[DHCP]`, `[STATISCH]`, `[ADMIN]`, `[USER]`.
+- `tabs()` – Reiter `[Ping]  Traceroute  DNS` (aktiv/inaktiv gleich breit).
+- `table()` – Text-Tabelle mit ausgerichteten Spalten (Kopfzeile gedimmt, GROSS).
+- `copyable()` – Wert, der sich per Klick kopiert; `bar()` – Balken `██████░░░░`.
 - Rückmeldungen (z. B. `kopiert: <Wert>`, Fehler) über `status()` in die Statusleiste – keine Toasts.
 
 Layout:
 - Kopfzeile: eine Textzeile `[Logo] net-conf @ HOST … [ADMIN]|[USER] [ Neu laden ] (F5)`.
-- Seitenleiste: Textmenü mit `>`-Marker für den aktiven Punkt, Tastenkürzel F1/F2/F3.
+- Seitenleiste: Textmenü mit `>`-Marker, Tastenkürzel F1 Übersicht, F2 Aktionen,
+  F3 Tests (nochmal F3 = nächster Reiter), F4 Tabellen, F10 Einstellungen; F5 = Neu laden.
 - Hauptbereich, darunter Konsole (gleiches Panel-Design), ganz unten Statusleiste (wie vim/tmux).
 - Schrift: `Cascadia Mono` → `Consolas` → monospace, **13px** überall. **Keine Web-Fonts** (offline!).
 - Mindestfenster 900×600 muss gut aussehen (Adapter-Panels zweispaltig).
@@ -117,11 +141,11 @@ Layout:
 ## Phasenplan
 - **Phase 1 (fertig):** Grundgerüst, Adapter-Übersicht, ipconfig-Aktionen, Ping, Konsole, Admin-Erkennung, CI.
 - **Phase 1.5 (fertig):** Design-Umbau auf TUI-Look, neues Netzwerk-Logo. Funktionen unverändert.
-- **Phase 2 (Ideen, noch NICHT bauen ohne Auftrag):**
-  - Traceroute (`tracert`) mit Hop-Liste
-  - DNS-Abfrage (`nslookup` bzw. Windows-DNS-API) mit Record-Typen
-  - Port-Test (TCP-Connect zu Host:Port)
-  - Öffentliche IP anzeigen
-  - ARP-Tabelle und Routing-Tabelle
-  - WLAN-Infos (SSID, Signal, Kanal, Band)
-  - Einstellungen (Akzentfarbe, Standard-Ping-Ziel, Konsole-Höhe, Autostart-Ansicht)
+- **Phase 2 (fertig, v0.2.0):** Traceroute, DNS-Abfrage, Port-Test, öffentliche IP, ARP-/Routing-Tabelle,
+  WLAN-Infos, Einstellungen.
+- **Ideen für später (NICHT bauen ohne Auftrag):**
+  - WLAN-Umgebung scannen (alle Netze mit Kanal/Signal, Kanalbelegung als Blockgrafik)
+  - Netzwerk-Scan im eigenen Subnetz (Ping-Sweep, ARP)
+  - Speed-/Latenz-Langzeitmessung mit Export (CSV)
+  - DNS-Server/IP per Klick setzen (netsh, braucht Admin)
+  - Ergebnisse als Text für Tickets exportieren
