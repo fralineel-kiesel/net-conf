@@ -30,6 +30,12 @@ pub enum NetCommand {
     RegisterDns,
     /// `count: None` = unbegrenzt (`ping -t`), bis abgebrochen wird.
     Ping { target: String, count: Option<u32> },
+    /// Routenverfolgung. `resolve = false` → `tracert -d` (keine Namensauflösung, viel schneller).
+    Tracert {
+        target: String,
+        #[serde(default)]
+        resolve: bool,
+    },
 }
 
 /// Ein laufender Prozess.
@@ -213,6 +219,10 @@ fn build_command(cmd: &NetCommand) -> Result<(String, Vec<String>, String), Stri
             let target = validate_target(target)?;
             ("ping", ping_args(&target, *count)?)
         }
+        NetCommand::Tracert { target, resolve } => {
+            let target = validate_target(target)?;
+            ("tracert", tracert_args(&target, *resolve))
+        }
     };
 
     // Anzeige wie in der Konsole, z. B.: ipconfig /renew "WLAN"
@@ -268,6 +278,16 @@ fn ping_args(target: &str, count: Option<u32>) -> Result<Vec<String>, String> {
     };
     args.push(target.to_string());
     Ok(args)
+}
+
+/// tracert: max. 30 Hops, 1 s Wartezeit pro Antwort (Standard wären 4 s).
+fn tracert_args(target: &str, resolve: bool) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-h".into(), "30".into(), "-w".into(), "1000".into()];
+    if !resolve {
+        args.push("-d".into());
+    }
+    args.push(target.to_string());
+    args
 }
 
 fn validate_count(n: u32) -> Result<u32, String> {
@@ -412,6 +432,15 @@ mod tests {
         for n in ["", "/all", "-x", "WLAN & calc", "a\"b", "x;y", "*", "a|b"] {
             assert!(validate_adapter(n).is_err(), "{n:?} sollte abgelehnt werden");
         }
+    }
+
+    #[test]
+    fn tracert_argumente() {
+        assert_eq!(tracert_args("1.1.1.1", false), ["-h", "30", "-w", "1000", "-d", "1.1.1.1"]);
+        assert_eq!(tracert_args("example.com", true), ["-h", "30", "-w", "1000", "example.com"]);
+        // Das Ziel wird genauso streng geprüft wie bei ping
+        let cmd = NetCommand::Tracert { target: "-h 99 x".into(), resolve: false };
+        assert!(build_command(&cmd).is_err());
     }
 
     #[test]
