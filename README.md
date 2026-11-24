@@ -16,7 +16,7 @@ und bietet Buttons für häufige Netzwerk-Befehle:
 - **Traffic** – Live-Datenrate eines Adapters (Mbit/s und MB/s, Spitze, Summe, zwei Graphen) und **Verbindungen** mit Prozess (wie `netstat -ano`) mit Filter, Sortierung und Reverse-DNS auf Klick.
 - **Werkzeuge** – **Subnetz-Rechner** (Netz, Broadcast, Maske, Wildcard, Host-Bereich, Klasse/Typ, Binärdarstellung mit Netz-/Hostanteil, Subnetting nach Anzahl oder Hosts, „Liegt IP X im Netz Y?“ – alles offline) und **IP-Profile** (DHCP oder feste IP pro Adapter speichern und per Klick anwenden, mit 30-Sekunden-Sicherheitsnetz).
 - **Befehlspalette** – **Strg+K** öffnet eine Suche über alle Seiten, Aktionen, Tests und Einstellungen. Auch mit Parametern: `ping 1.1.1.1`, `traceroute example.com`, `nslookup example.com`, `wol NAS`, `subnet 10.0.0.0/22`, `profil Labor`.
-- **Einstellungen** – Themes (Cyan, Amber, Phosphor, Papier, Kontrast), Akzentfarbe, Schriftgrösse, Standard-Ping-Ziel, Konsolen-Höhe, Start-Ansicht, Tray und Autostart, Update-Hinweis.
+- **Einstellungen** – 12 Themes (Cyan, Amber, Phosphor, Papier, Kontrast, DOS-Blau, Mitternacht, Synthwave, Sepia, Retro-CRT, Arktis, Graphit), jedes mit passender Schriftart, die man frei wechseln kann (Cascadia Mono, Consolas, Lucida Console, Courier New, JetBrains Mono, IBM Plex Mono, Space Mono, VT323, Share Tech Mono), Akzentfarbe, Schriftgrösse, Standard-Ping-Ziel, Konsolen-Höhe, Start-Ansicht, Tray und Autostart, Update-Hinweis.
 - **Kompaktmodus** – kleines Fenster (immer im Vordergrund) mit Hostname, IP, Gateway, DNS, Status und Live-Ping zum Gateway und zu 1.1.1.1. Umschalten über [ Kompakt ] in der Kopfzeile, das Tray-Menü oder Strg+K.
 - **Tray** – Symbol im Infobereich mit „Öffnen“, „Kompaktmodus“, „Beenden“; auf Wunsch minimiert das Schliessen in den Tray.
 - **Konsole** – die Rohausgabe aller Befehle live mitlesen.
@@ -41,6 +41,8 @@ Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 
 - **Gespeicherte Daten:** Monitor-Ziele, WoL-Geräte, IP-Profile und die Tray-Einstellung liegen in `%APPDATA%\Net-Conf\config.json`. Ist die Datei beschädigt, legt Net-Conf eine Sicherung `config.json.bak` an und startet mit Standardwerten.
 
 Gebaut mit [Tauri v2](https://tauri.app) (Rust) und reinem TypeScript – klein, schnell, ohne Installation lauffähig.
+
+Eingebettete Schriften: JetBrains Mono, IBM Plex Mono, Space Mono, VT323 und Share Tech Mono (über [Fontsource](https://fontsource.org)), alle unter der [SIL Open Font License 1.1](https://openfontlicense.org). Sie stecken in der App und werden nie aus dem Internet geladen.
 
 ## Herunterladen
 

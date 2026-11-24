@@ -1201,3 +1201,14 @@ body.compact-sim #app {
 .compact-actions {
   margin-top: calc(4rem / 13);
 }
+
+/* Schrift-Vorschau in den Einstellungen (Schrift/Grösse setzt settings.ts per CSSOM) */
+.font-sample {
+  white-space: pre;
+  color: var(--bright);
+}
+/* Beschreibung immer in eigener Zeile unter Name + Vorschau (einheitlich) */
+.theme-row .theme-desc {
+  flex-basis: 100%;
+  padding-left: 4ch;
+}

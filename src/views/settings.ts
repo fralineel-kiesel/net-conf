@@ -1,5 +1,5 @@
 // Ansicht "Einstellungen" (F10):
-//   DARSTELLUNG  Theme (mit Vorschau), Akzentfarbe (nur Theme Cyan), Schriftgrösse
+//   DARSTELLUNG  Theme (mit Vorschau), Schriftart (mit Vorschau), Akzentfarbe (nur Theme Cyan), Schriftgrösse
 //   ALLGEMEIN    Standard-Ping-Ziel, Konsole-Höhe, Start-Ansicht
 //   FENSTER      In den Tray minimieren, Mit Windows starten
 //   UPDATES      Beim Start prüfen, Jetzt prüfen
@@ -13,7 +13,10 @@ import {
   FONT_DEFAULT,
   FONT_MAX,
   FONT_MIN,
+  FONTS,
+  activeFont,
   onSettingsChange,
+  setFont,
   setFontSize,
   setTheme,
   settings,
@@ -21,7 +24,8 @@ import {
   updateSettings,
   type Settings,
 } from "../settings";
-import type { Theme } from "../themes";
+import { ensureFont } from "../fonts";
+import { fontById, type FontDef, type Theme } from "../themes";
 import type { AutostartStatus } from "../types";
 import { formatUnix, h, replaceChildren } from "../ui/dom";
 import { confirmDialog } from "../ui/modal";
@@ -44,7 +48,14 @@ const START_VIEWS: { value: Settings["startView"]; label: string }[] = [
   { value: "tools", label: "Werkzeuge" },
 ];
 
-/** Vorschauzeile in den Farben eines Themes (unabhängig vom aktiven Theme). */
+/** Schrift auf ein Vorschau-Element anwenden (Grösse wie in der App, inkl. `scale`). */
+function applyPreviewFont(el: HTMLElement, f: FontDef): void {
+  ensureFont(f.id); // eingebettete Schrift erst jetzt laden
+  el.style.fontFamily = f.family;
+  el.style.fontSize = `${Math.round(settings.fontSize * f.scale)}px`;
+}
+
+/** Vorschauzeile in den Farben und der Schrift eines Themes (unabhängig vom aktiven Theme). */
 function themePreview(t: Theme): HTMLElement {
   const c = t.colors;
   const span = (text: string, color = c.text, bg?: string) => {
@@ -70,6 +81,7 @@ function themePreview(t: Theme): HTMLElement {
   );
   el.style.background = c.bg;
   el.style.borderColor = c.line;
+  applyPreviewFont(el, fontById(t.font));
   return el;
 }
 
@@ -143,10 +155,38 @@ export function createSettings(): HTMLElement {
         { class: "tcheck theme-pick", type: "button", role: "radio", "aria-checked": String(active), onclick: () => pickTheme(t) },
         h("span", { class: "mark" }, active ? "(*)" : "( )"),
         " ",
-        t.label.padEnd(9),
+        t.label.padEnd(11),
       );
-      return h("div", { class: "theme-row" }, btn, themePreview(t), h("span", { class: "dim theme-desc" }, t.description));
+      return h(
+        "div",
+        { class: "theme-row" },
+        btn,
+        themePreview(t),
+        h("span", { class: "dim theme-desc" }, `${t.description} · ${fontById(t.font).label}`),
+      );
     });
+
+    // Schriftart: (*) vom Theme  |  ( ) Name  Vorschau in genau dieser Schrift  Herkunft
+    const fontOption = (value: FontDef["id"] | "theme", label: string, f: FontDef, desc: string) => {
+      const active = settings.font === value;
+      const btn = h(
+        "button",
+        { class: "tcheck font-pick", type: "button", role: "radio", "aria-checked": String(active), onclick: () => pickFont(value) },
+        h("span", { class: "mark" }, active ? "(*)" : "( )"),
+        " ",
+        label.padEnd(16),
+      );
+      const sample = h("span", { class: "font-sample", "aria-hidden": "true" }, "ipconfig /all 0O 1lI [ONLINE] äöü");
+      applyPreviewFont(sample, f);
+      return h("div", { class: "theme-row" }, btn, sample, h("span", { class: "dim theme-desc" }, desc));
+    };
+    const themeFont = fontById(THEMES.find((t) => t.id === settings.theme)!.font);
+    const fontRows = [
+      fontOption("theme", "vom Theme", themeFont, `jetzt: ${themeFont.label}`),
+      ...FONTS.map((f) =>
+        fontOption(f.id, f.label, f, `${f.description} · ${f.source === "windows" ? "Windows" : "eingebettet"}${f.scale !== 1 ? ` · ×${f.scale}` : ""}`),
+      ),
+    ];
 
     const accent = radio(
       ACCENTS.map((a) => ({ value: a.value, label: a.label })),
@@ -166,6 +206,11 @@ export function createSettings(): HTMLElement {
       lookBody,
       kvRow("Theme", h("div", { class: "theme-list", role: "radiogroup", "aria-label": "Theme" }, ...themeRows)),
       kvRow(
+        "Schriftart",
+        h("div", { class: "theme-list", role: "radiogroup", "aria-label": "Schriftart" }, ...fontRows),
+        h("span", { class: "dim" }, "Nur Monospace (Terminal-Raster). Eingebettete Schriften sind in der App enthalten – offline, Lizenz SIL OFL."),
+      ),
+      kvRow(
         "Akzentfarbe",
         accentAllowed ? accent : h("span", { class: "dim" }, "im Theme festgelegt (wählbar beim Theme Cyan)"),
         accentAllowed ? h("span", { class: "dim" }, "Grün/Rot sind für Status-Wörter reserviert.") : null,
@@ -177,7 +222,13 @@ export function createSettings(): HTMLElement {
   function pickTheme(t: Theme): void {
     setTheme(t.id);
     renderLook();
-    status(`Theme: ${t.label}`, "ok");
+    status(`Theme: ${t.label}${settings.font === "theme" ? ` (Schrift ${fontById(t.font).label})` : ""}`, "ok");
+  }
+
+  function pickFont(id: FontDef["id"] | "theme"): void {
+    setFont(id);
+    renderLook();
+    status(`Schriftart: ${id === "theme" ? `vom Theme (${activeFont().label})` : activeFont().label}`, "ok");
   }
 
   // --- ALLGEMEIN ------------------------------------------------------------------
@@ -302,12 +353,14 @@ export function createSettings(): HTMLElement {
   }
 
   // Schriftgrösse kann sich auch per Tastatur/Befehlspalette ändern
+  // Theme, Schriftart oder -grösse können sich auch per Tastatur/Befehlspalette ändern
+  let lookKey = "";
   onSettingsChange(() => {
-    renderFont();
-    const active = view.querySelector<HTMLElement>(`.theme-pick[aria-checked="true"]`);
-    const expected = THEMES.findIndex((t) => t.id === settings.theme);
-    const rows = [...view.querySelectorAll<HTMLElement>(".theme-pick")];
-    if (rows[expected] !== active) renderLook();
+    const key = `${settings.theme}|${settings.font}|${settings.fontSize}`;
+    if (key !== lookKey) {
+      lookKey = key;
+      renderLook();
+    }
   });
   onConfigChange(renderWindow);
 
@@ -323,6 +376,21 @@ export function createSettings(): HTMLElement {
     })),
   );
   registerCommands([
+    {
+      id: "setting.font.theme",
+      title: "Schriftart: vom Theme",
+      category: "EINSTELLUNG",
+      keywords: "font schrift standard",
+      run: () => pickFont("theme"),
+    },
+    ...FONTS.map((f) => ({
+      id: `setting.font.${f.id}`,
+      title: `Schriftart: ${f.label}`,
+      category: "EINSTELLUNG" as const,
+      hint: f.description,
+      keywords: "font schrift",
+      run: () => pickFont(f.id),
+    })),
     { id: "setting.font.up", title: "Schrift grösser", category: "EINSTELLUNG", hint: "Strg +", keywords: "zoom schriftgrösse", run: () => changeFont(settings.fontSize + 1) },
     { id: "setting.font.down", title: "Schrift kleiner", category: "EINSTELLUNG", hint: "Strg −", keywords: "zoom schriftgrösse", run: () => changeFont(settings.fontSize - 1) },
     { id: "setting.font.reset", title: `Schrift Standard (${FONT_DEFAULT} px)`, category: "EINSTELLUNG", hint: "Strg 0", keywords: "zoom schriftgrösse zurücksetzen", run: () => changeFont(FONT_DEFAULT) },

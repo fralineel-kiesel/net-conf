@@ -1,7 +1,7 @@
 // Kontrast-Test der Themes (ohne Test-Framework): npm test
 // Status-Wörter (ONLINE/OFFLINE/Warnung) und Text müssen in jedem Theme mind. 4.5:1 haben.
 import { readFileSync } from "node:fs";
-import { ACCENTS, contrast, lineHeightFor, THEMES } from "../src/themes.ts";
+import { ACCENTS, contrast, FONTS, lineHeightFor, THEMES } from "../src/themes.ts";
 
 const eq = (a: unknown, b: unknown, msg: string) => {
   if (a !== b) { console.log("FAIL", msg, JSON.stringify(a), "!=", JSON.stringify(b)); process.exitCode = 1; }
@@ -41,3 +41,13 @@ for (const [k, v] of Object.entries(cyan)) {
 eq(lineHeightFor(13), 18, "Zeilenhöhe bei 13 px = 18 px (wie bisher)");
 eq(lineHeightFor(10), 14, "Zeilenhöhe bei 10 px");
 eq(lineHeightFor(20), 28, "Zeilenhöhe bei 20 px");
+
+// Schriftarten: jedes Theme verweist auf eine vorhandene Schrift, Skalierung im vernünftigen Rahmen
+for (const t of THEMES) eq(FONTS.some((f) => f.id === t.font), true, `${t.label}: Schrift „${t.font}“ existiert`);
+eq(new Set(THEMES.map((t) => t.id)).size, THEMES.length, "Theme-IDs eindeutig");
+eq(new Set(FONTS.map((f) => f.id)).size, FONTS.length, "Schrift-IDs eindeutig");
+for (const f of FONTS) {
+  eq(f.scale >= 0.8 && f.scale <= 1.6, true, `${f.label}: Skalierung ${f.scale}`);
+  eq(/monospace$/.test(f.family), true, `${f.label}: Stapel endet mit monospace`);
+  if (f.source === "embedded") eq(!!f.face && f.family.startsWith(`"${f.face}"`), true, `${f.label}: eingebettete Schrift steht vorne im Stapel`);
+}

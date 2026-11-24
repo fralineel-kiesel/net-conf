@@ -16,6 +16,7 @@
 // * Es werden so viele Messungen gezeigt, wie in die Breite passen.
 // * Mini-Variante (`mini: true`) für den Ping-Monitor: 1 Zeile = 8 Stufen,
 //   Skala nur als kurzer Text rechts ("50 ms").
+import { fontEpoch } from "../fonts";
 import { h } from "./dom";
 
 export interface LatencyGraph {
@@ -74,6 +75,17 @@ export function createLatencyGraph(opts: GraphOptions = {}): LatencyGraph {
   };
 
   let last: { history: (number | null)[]; scaleMax: number } = { history: [], scaleMax: 10 };
+  // Schrift gewechselt (Einstellungen) oder eingebettete Schrift fertig geladen?
+  // Dann stimmt die gemessene Zeichenbreite nicht mehr → vor dem Zeichnen neu messen.
+  let measuredFor = "";
+  const remeasureIfNeeded = () => {
+    const css = getComputedStyle(document.documentElement);
+    const key = `${css.getPropertyValue("--font")}|${css.fontSize}|${fontEpoch()}`;
+    if (key !== measuredFor) {
+      measuredFor = key;
+      measure();
+    }
+  };
 
   // Unsichtbar (anderer Reiter) ist die Breite 0 – dann die letzte bekannte nehmen,
   // damit die Skala weiter mit allen sichtbaren Werten rechnet.
@@ -85,6 +97,7 @@ export function createLatencyGraph(opts: GraphOptions = {}): LatencyGraph {
 
   const render = (history: (number | null)[], scaleMax: number) => {
     last = { history, scaleMax };
+    remeasureIfNeeded();
     const cssW = canvas.clientWidth;
     const cssH = canvas.clientHeight;
     scaleLabel.textContent = mini

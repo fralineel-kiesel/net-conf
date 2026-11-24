@@ -15,6 +15,9 @@ Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** komme
 - Rust-Crates bewusst minimal: `tauri` (Feature `tray-icon`), `serde`, `serde_json`, `windows-sys` (nur Windows).
   Kein HTTP-/TLS-Crate: HTTPS-Abfragen (öffentliche IP, Update-Check) macht das WebView per `fetch`.
   Kein Opener-/Autostart-Plugin: Browser öffnen (ShellExecuteW) und Registry (`winreg.rs`) über windows-sys.
+- Frontend-Abhängigkeiten: `@tauri-apps/api`; als devDependencies nur Build-Werkzeuge und fünf Schrift-Pakete
+  `@fontsource/*` (JetBrains Mono, IBM Plex Mono, Space Mono, VT323, Share Tech Mono – Lizenz SIL OFL 1.1),
+  von denen nur je **eine** woff2-Datei (latin, 400) in die App kommt (`src/fonts.ts`, zusammen ca. 84 KB).
 - UI-Sprache: **Deutsch**.
 - Ziel: kleine .exe, wenig RAM, Start < 1 s, keine unnötigen Abhängigkeiten.
 
@@ -94,7 +97,8 @@ src/
   mock-tools.ts Mock für IP-Profile (inkl. Countdown), Kompaktmodus, Autostart, Update-Check
   subnet.ts    Subnetz-Rechner (rein, `>>> 0`-Arithmetik, getestet)
   ipprofile.ts IP-Profile: Formular-Prüfung wie das Backend, Beschreibung, Profil aus Adapter
-  themes.ts    Farb-Themes als Daten + WCAG-Kontrast (getestet), Akzentfarben, Schriftgrössen-Grenzen
+  themes.ts    Farb-Themes + Schriftarten (FONTS) als Daten, WCAG-Kontrast (getestet), Akzentfarben, Schriftgrössen
+  fonts.ts     eingebettete Schriften (woff2) erst bei Bedarf per FontFace laden, fontEpoch() für Graphen
   fuzzy.ts     Fuzzy-Suche der Befehlspalette (rein, getestet)
   registry.ts  Befehls-Registry der Palette (registerCommand)
   update.ts    Update-Check: SemVer, Release-URL-Prüfung, API-Antwort auswerten, fetch (rein bis auf fetch)
@@ -218,7 +222,8 @@ Verboten:
   (Die eine Schriftgrösse ist einstellbar: 10–20 px, Standard 13, Strg +/−/0 → `--fs`.)
 
 Farben – **nur** über CSS-Variablen (`--bg --bar --line --text --dim --bright --accent --ok --err --warn --backdrop`):
-- Werte stehen in `src/themes.ts` (Cyan = Standard, Amber, Phosphor, Papier, Kontrast); `applySettings()` setzt sie per JS.
+- Werte stehen in `src/themes.ts` (12 Themes: Cyan = Standard, Amber, Phosphor, Papier, Kontrast, DOS-Blau,
+  Mitternacht, Synthwave, Sepia, Retro-CRT, Arktis, Graphit); `applySettings()` setzt sie per JS.
   `:root` in `styles.css` muss exakt Theme „Cyan“ entsprechen (prüft `scripts/theme.test.ts`).
 - Neues Theme: Eintrag in `THEMES` – der Test rechnet nach: Text, Werte, Akzent, ok/err/warn ≥ 4.5:1 auf `--bg`,
   ok/err ≥ 4.5:1 auf `--bar`, Hover (`--bg` auf `--accent`) ≥ 4.5:1, gedimmt ≥ 3:1.
@@ -253,10 +258,18 @@ Layout:
 - Kopfzeile: eine Textzeile `[Logo] net-conf @ HOST … [ADMIN]|[USER] [ Neu laden ] (F5)`.
 - Seitenleiste: Textmenü mit `>`-Marker und Tastenkürzeln (siehe Seitenübersicht unten).
 - Hauptbereich, darunter Konsole (gleiches Panel-Design), ganz unten Statusleiste (wie vim/tmux).
-- Schrift: `Cascadia Mono` → `Consolas` → monospace, **eine** Grösse überall (`--fs`, Standard 13px). **Keine Web-Fonts** (offline!).
+- Schrift: **nur Monospace**, **eine** Grösse überall (`--fs`, Standard 13px), Familie über `--font`.
+  Jedes Theme bringt eine Schriftart mit (`Theme.font`), Einstellung „Schriftart“ kann sie überschreiben (`settings.font`,
+  `"theme"` = vom Theme). Schriften in `themes.ts → FONTS`: Windows-vorinstalliert (Cascadia Mono, Consolas,
+  Lucida Console, Courier New) oder **eingebettet** (woff2 in der App, `src/fonts.ts`, lädt erst bei Bedarf).
+  **Nie Web-Fonts aus dem Internet** (offline!) – neue eingebettete Schrift: nur OFL/freie Lizenz, nur latin + 400,
+  Familienname mit Präfix `NC ` (keine Verwechslung mit installierten Schriften), immer mit Fallback-Stapel.
+  `scale` gleicht optisch kleine Schriften aus (VT323 ×1.45): effektive Grösse = `round(fontSize × scale)`.
 - Einheiten: Breiten in `ch`, Höhen über `--lh` (JS: `lineHeightFor(fs)`, 13 → 18 px), Abstände in rem als
   `calc(12rem / 13)` (= 12px bei 13px Schrift). Kein neues `px` ausser 1px-Linien und Scrollbalken.
-  Canvas-Graphen lesen die Schriftgrösse aus `getComputedStyle`. Browser-Zoom (Strg +/−, Strg+Mausrad) wird abgefangen.
+  Canvas-Graphen lesen die Schriftgrösse aus `getComputedStyle` und messen die Zeichenbreite neu, wenn sich
+  Schrift/Grösse ändert oder eine eingebettete Schrift fertig geladen ist (`fontEpoch()`).
+  Browser-Zoom (Strg +/−, Strg+Mausrad) wird abgefangen.
 - Mindestfenster 900×600 muss gut aussehen (Adapter-Panels zweispaltig).
 - Prüfen: Screenshots im Mock-Modus + Audit, das per `getComputedStyle` Rundungen,
   Schatten, Verläufe, Transitions und Grün/Rot als Rahmen/Hintergrund sucht.
@@ -273,7 +286,7 @@ Layout:
 | F7 | WLAN | Verbindung (live, Signal-Graph), Netze in der Umgebung, Kanal-Belegung, Profile, Verbinden |
 | F8 | Traffic | Reiter Live · Verbindungen (nochmal F8 = nächster Reiter) |
 | F9 | Werkzeuge | Reiter Subnetz · IP-Profile (nochmal F9 = nächster Reiter) |
-| F10 | Einstellungen | Darstellung (Theme, Akzent, Schriftgrösse), Allgemein, Fenster (Tray, Autostart), Updates, Info |
+| F10 | Einstellungen | Darstellung (Theme, Schriftart, Akzent, Schriftgrösse), Allgemein, Fenster (Tray, Autostart), Updates, Info |
 | Strg+K | Befehlspalette | Suche über Seiten, Aktionen, Tests, Werkzeuge, Einstellungen |
 
 Neue Seite: `ViewId` in `settings.ts`, `NAV` + `views` (+ ggf. `lifecycle`) in `main.ts`, `START_VIEWS` in `views/settings.ts`.
@@ -283,7 +296,8 @@ Seiten aus NAV landen automatisch in der Befehlspalette; Reiter und Funktionen m
 - `src/registry.ts`: `registerCommand({ id, title, category, hint?, keywords?, param?, visible?, run })`.
   Kategorien: `SEITE` `AKTION` `TEST` `TOOL` `EINSTELLUNG` (als Tag `[SEITE]` angezeigt). Gleiche `id` ersetzt.
 - **Jede Seite meldet ihre Befehle beim Erzeugen selbst an** (z. B. `views/actions.ts` alle Aktionen, `tests.ts`
-  die Reiter, `lan.ts` „wol“, `tools.ts` „subnet“/„profil“, `views/settings.ts` Themes/Schrift, `main.ts` Seiten).
+  die Reiter, `lan.ts` „wol“, `tools.ts` „subnet“/„profil“, `views/settings.ts` Themes/Schriftarten/Schriftgrösse,
+  `main.ts` Seiten).
 - Parameter-Befehle: `param: { keyword: "ping", placeholder: "<ziel>", validate, suggest? }` → Eingabe „ping 1.1.1.1“.
   `validate` = **dieselbe** Prüfung wie auf der Seite (z. B. `validateTarget`). Vorhanden: `ping`, `traceroute`,
   `nslookup`, `wol <Gerätename>`, `subnet <ip/cidr>`, `profil <Name>`.
