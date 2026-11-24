@@ -5,18 +5,21 @@ import { onStateChange, refreshAll, state } from "./state";
 import { createConsole } from "./ui/console";
 import { copyText, h, logo, prefs } from "./ui/dom";
 import { dialogOpen } from "./ui/modal";
+import { applySettings, settings, type ViewId } from "./settings";
 import { createStatusbar, status } from "./ui/statusbar";
 import { tag, tbutton } from "./ui/widgets";
 import { createActions } from "./views/actions";
 import { createOverview } from "./views/overview";
+import { createSettings } from "./views/settings";
+import { createTables } from "./views/tables";
 import { createTests } from "./views/tests";
-
-type ViewId = "overview" | "actions" | "tests";
 
 const NAV: { id: ViewId; label: string; key: string }[] = [
   { id: "overview", label: "Übersicht", key: "F1" },
   { id: "actions", label: "Aktionen", key: "F2" },
   { id: "tests", label: "Tests", key: "F3" },
+  { id: "tables", label: "Tabellen", key: "F4" },
+  { id: "settings", label: "Einstellungen", key: "F10" },
 ];
 
 /** Kopfzeile: "net-conf @ HOSTNAME ............ [ADMIN] [ Neu laden ] (F5)" */
@@ -58,18 +61,26 @@ async function reload(): Promise<void> {
 }
 
 function main(): void {
+  applySettings(); // Akzentfarbe usw. vor dem ersten Zeichnen setzen
   const app = document.getElementById("app")!;
 
+  const tests = createTests();
+  const tables = createTables();
   const views: Record<ViewId, HTMLElement> = {
     overview: createOverview(),
     actions: createActions(),
-    tests: createTests(),
+    tests: tests.el,
+    tables: tables.el,
+    settings: createSettings(),
   };
-  const mainEl = h("main", { class: "main" }, views.overview, views.actions, views.tests);
+  const mainEl = h("main", { class: "main" }, ...Object.values(views));
+  let currentView: ViewId = "overview";
 
   // Seitenleiste als Textmenü: aktiver Punkt mit ">" markiert.
   const navItems = new Map<ViewId, { btn: HTMLButtonElement; marker: HTMLElement }>();
   const show = (id: ViewId) => {
+    currentView = id;
+    if (id === "tables") tables.activate(); // Tabellen erst beim ersten Öffnen laden
     for (const [key, el] of Object.entries(views)) el.hidden = key !== id;
     for (const [key, { btn, marker }] of navItems) {
       const active = key === id;
@@ -86,6 +97,8 @@ function main(): void {
     { class: "sidebar", "aria-label": "Bereiche" },
     h("div", { class: "menu-title" }, "MENÜ"),
     ...NAV.map((n) => {
+      // Trennlinie vor "Einstellungen"
+      const sep = n.id === "settings" ? h("div", { class: "menu-sep", "aria-hidden": "true" }) : null;
       const marker = h("span", { class: "marker" }, " ");
       const btn = h(
         "button",
@@ -95,16 +108,18 @@ function main(): void {
         h("span", { class: "menu-key" }, n.key),
       );
       navItems.set(n.id, { btn, marker });
-      return btn;
+      return sep ? h("div", {}, sep, btn) : btn;
     }),
   );
 
   app.append(buildHeader(), sidebar, mainEl, createConsole(), createStatusbar());
 
-  const saved = prefs.get("view", "overview") as ViewId;
+  // Start-Ansicht: aus den Einstellungen oder die zuletzt verwendete
+  const saved = (settings.startView === "last" ? prefs.get("view", "overview") : settings.startView) as ViewId;
   show(saved in views ? saved : "overview");
 
-  // Tastenkürzel: F1–F3 wechseln den Bereich, F5 lädt neu.
+  // Tastenkürzel: F1–F4 und F10 wechseln den Bereich, F5 lädt neu.
+  // F3 in "Tests" springt zum nächsten Reiter (Ping → Traceroute → DNS → Port).
   // preventDefault, damit WebView2 nicht die Seite neu lädt (F5) oder Hilfe öffnet (F1).
   document.addEventListener(
     "keydown",
@@ -113,7 +128,8 @@ function main(): void {
       if (!nav && e.key !== "F5") return;
       e.preventDefault();
       if (dialogOpen()) return;
-      if (nav) show(nav.id);
+      if (nav?.id === "tests" && currentView === "tests") tests.next();
+      else if (nav) show(nav.id);
       else void reload();
     },
     true,

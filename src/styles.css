@@ -117,7 +117,7 @@ p {
 #app {
   display: grid;
   height: 100vh;
-  grid-template-columns: 18ch minmax(0, 1fr);
+  grid-template-columns: 21ch minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-areas:
     "top top"
@@ -298,7 +298,7 @@ p {
 /* Raster für mehrere Panels – gleiche Höhe pro Reihe, keine Lücken */
 .panel-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 46ch), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 45ch), 1fr));
   gap: 12px 2ch;
   align-items: stretch;
 }
@@ -520,6 +520,91 @@ p {
   gap: 0 1ch;
 }
 
+/* ---------- Phase 2: Reiter, Tabellen, Kleinteile ------------------------- */
+
+.menu-sep {
+  margin: 6px 1ch;
+  border-top: 1px solid var(--line);
+}
+
+/* Reiter: "[Ping] │ Traceroute │ DNS" */
+.ttabs {
+  margin-bottom: 12px;
+  white-space: pre;
+}
+.ttab {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  white-space: pre;
+  cursor: pointer;
+}
+.ttab.active {
+  color: var(--accent);
+}
+.ttab:hover,
+.ttab:focus-visible {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* Text-Tabelle: Spaltenbreiten setzt table() per gridTemplateColumns */
+.ttable {
+  display: flex;
+  flex-direction: column;
+}
+.trow {
+  display: grid;
+  column-gap: 2ch;
+}
+.thead {
+  color: var(--dim);
+}
+.cell {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cell.right {
+  text-align: right;
+}
+.tempty {
+  padding-top: 2px;
+}
+
+.accent-text {
+  color: var(--accent);
+}
+.spacer-line {
+  height: 8px;
+}
+.wrap {
+  white-space: normal;
+}
+.tinput-short {
+  width: 28ch;
+}
+.public-ip {
+  margin-bottom: 12px;
+}
+
+/* Farbvorschau bei den Akzentfarben: Beschriftung in der jeweiligen Farbe */
+.tcheck.swatch,
+.tcheck.swatch .mark {
+  color: var(--swatch);
+}
+.tcheck.swatch:hover,
+.tcheck.swatch:focus-visible {
+  background: var(--swatch);
+}
+.tcheck.swatch:hover .mark,
+.tcheck.swatch:focus-visible .mark {
+  color: var(--bg);
+}
+.tcheck.swatch:hover {
+  color: var(--bg);
+}
+
 /* ---------- Ping-Graph aus Blockzeichen ------------------------------------ */
 
 .graph {
@@ -540,7 +625,8 @@ p {
   padding-bottom: 4px;
 }
 .console-body {
-  height: calc(var(--lh) * 8);
+  /* Höhe in Zeilen, einstellbar unter "Einstellungen" (--console-lines) */
+  height: calc(var(--lh) * var(--console-lines, 8));
   overflow: auto;
   color: var(--text);
   user-select: text;
@@ -604,7 +690,7 @@ p {
 /* Kleine Fenster (Mindestgrösse 900×600): Konsole flacher */
 @media (max-height: 680px) {
   .console-body {
-    height: calc(var(--lh) * 5);
+    height: calc(var(--lh) * min(var(--console-lines, 8), 5));
   }
 }
 

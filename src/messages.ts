@@ -30,6 +30,11 @@ export function explainFailure(
     case "registerDns":
       if (!isAdmin) return ADMIN_NEEDED;
       break;
+    case "tracert":
+      if (text.includes("nicht aufgelöst") || text.includes("unable to resolve") || text.includes("nicht finden")) {
+        return `Der Host „${command.target.trim()}“ wurde nicht gefunden. Bitte Namen prüfen.`;
+      }
+      break;
     case "ping":
       if (text.includes("nicht finden") || text.includes("could not find")) {
         return `Der Host „${command.target.trim()}“ wurde nicht gefunden. Bitte Namen prüfen.`;
