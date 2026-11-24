@@ -657,7 +657,7 @@ mod imp {
 
     use super::{
         channel_from_mhz, explain_reason, merge_networks, unsupported_text, classify_security, RawNetwork,
-        names_hint, WifiBss, WifiConnectRequest, WifiProfile, WifiScanResult,
+        names_hint, WifiBss, WifiConnectRequest, WifiProfile, WifiScanResult, NAMES_HIDDEN_HINT,
     };
     use crate::wifiprofile::{self, Security};
     use std::ptr::{addr_of, null, null_mut};
@@ -764,7 +764,8 @@ mod imp {
         // SAFETY: Windows legt die Liste an, WlanMem gibt sie frei.
         let rc = unsafe { WlanGetAvailableNetworkList(handle.0, &guid, 0, null(), &mut list) };
         if rc == ERROR_ACCESS_DENIED {
-            return Ok(WifiScanResult { hint: Some(LOCATION_HINT.into()), ..Default::default() });
+            // Ab Windows 11 24H2 ohne Standortzugriff: Liste bleibt leer → Hinweis
+            return Ok(WifiScanResult { hint: Some(NAMES_HIDDEN_HINT.into()), ..Default::default() });
         }
         if rc == POWER_STATE_INVALID {
             return Err(RADIO_OFF.into());

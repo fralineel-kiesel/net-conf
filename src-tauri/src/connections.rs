@@ -72,9 +72,13 @@ pub fn list() -> Result<Vec<Connection>, String> {
 /// Reverse-DNS für EINE Adresse (nur auf Klick). Fragt den System-DNS-Server
 /// (wie die DNS-Abfrage unter Tests). `None` = kein Name.
 pub fn reverse(address: &str) -> Result<Option<String>, String> {
+    // Zonen-Index von Link-Local-Adressen ("fe80::1%12") gehört nicht zur Adresse
     let ip: IpAddr = address
         .trim()
         .trim_matches(|c| c == '[' || c == ']')
+        .split('%')
+        .next()
+        .unwrap_or_default()
         .parse()
         .map_err(|_| "Ungültige IP-Adresse.".to_string())?;
     if ip.is_unspecified() {
@@ -305,5 +309,6 @@ mod tests {
         assert!(reverse("kein-ip").is_err());
         assert!(reverse("0.0.0.0").is_err());
         assert!(reverse("::").is_err());
+        assert!(reverse("%12").is_err());
     }
 }
