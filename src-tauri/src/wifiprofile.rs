@@ -139,6 +139,8 @@ pub fn profile_xml(ssid: &str, security: Security, password: &str, hidden: bool)
         Security::Wpa2 => ("WPA2PSK", "AES"),
         Security::Wpa3 => ("WPA3SAE", "AES"),
     };
+    // Zwischen-Strings mit dem Passwort werden am Ende überschrieben (siehe unten)
+    let escaped_key = xml_escape(password);
     let shared_key = match key_type {
         None => String::new(),
         Some(kt) => {
@@ -147,12 +149,11 @@ pub fn profile_xml(ssid: &str, security: Security, password: &str, hidden: bool)
                 KeyType::NetworkKey => "networkKey",
             };
             format!(
-                "\n\t\t\t<sharedKey>\n\t\t\t\t<keyType>{kt}</keyType>\n\t\t\t\t<protected>false</protected>\n\t\t\t\t<keyMaterial>{}</keyMaterial>\n\t\t\t</sharedKey>",
-                xml_escape(password)
+                "\n\t\t\t<sharedKey>\n\t\t\t\t<keyType>{kt}</keyType>\n\t\t\t\t<protected>false</protected>\n\t\t\t\t<keyMaterial>{escaped_key}</keyMaterial>\n\t\t\t</sharedKey>"
             )
         }
     };
-    Ok(format!(
+    let xml = format!(
         r#"<?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
 	<name>{name}</name>
@@ -176,7 +177,10 @@ pub fn profile_xml(ssid: &str, security: Security, password: &str, hidden: bool)
 	</MSM>
 </WLANProfile>"#,
         hex = ssid_hex(ssid),
-    ))
+    );
+    wipe_string(escaped_key);
+    wipe_string(shared_key);
+    Ok(xml)
 }
 
 /// Speicher eines Strings mit Geheimnis überschreiben, bevor er freigegeben wird.
