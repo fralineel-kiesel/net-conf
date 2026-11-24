@@ -1,0 +1,87 @@
+# Baut Net-Conf auf Windows und stellt die .exe-Dateien als Artifacts bereit.
+# Bei Tags "v*" (z. B. v0.1.0) wird zusätzlich ein GitHub Release angelegt.
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+# Standard: nur lesen. Schreibrechte bekommt nur der Release-Job.
+permissions:
+  contents: read
+
+# Ältere Läufe für denselben Branch abbrechen, wenn neu gepusht wird.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows-Build
+    runs-on: windows-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v7
+
+      - name: Node.js (LTS) einrichten
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Rust (stable) einrichten
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust-Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: npm-Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Tauri-App bauen (Frontend + Rust + NSIS-Installer)
+        run: npm run tauri build
+
+      - name: Gebaute Dateien anzeigen
+        shell: pwsh
+        run: |
+          Get-Item src-tauri/target/release/net-conf.exe | Format-Table Name, Length
+          Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Format-Table Name, Length
+
+      - name: Artifact "Net-Conf-portable" hochladen
+        uses: actions/upload-artifact@v7
+        with:
+          name: Net-Conf-portable
+          path: src-tauri/target/release/net-conf.exe
+          if-no-files-found: error
+
+      - name: Artifact "Net-Conf-Installer" hochladen
+        uses: actions/upload-artifact@v7
+        with:
+          name: Net-Conf-Installer
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Artifacts herunterladen
+        uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Release anlegen
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release/*.exe
+          generate_release_notes: true

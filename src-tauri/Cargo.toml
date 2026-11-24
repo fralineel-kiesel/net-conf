@@ -1,0 +1,44 @@
+[package]
+name = "net-conf"
+version = "0.1.0"
+description = "Net-Conf – Netzwerk-Helfer für Windows 11"
+authors = ["Net-Conf"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# Eigener Lib-Name, damit er nicht mit dem Binary "net-conf" kollidiert
+# (bekanntes Problem unter Windows, siehe Tauri-Vorlage).
+name = "net_conf_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Nur unter Windows: schlanke, reine API-Bindings (keine Laufzeitkosten).
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.61"
+features = [
+  "Win32_Foundation",
+  "Win32_Globalization",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_Networking_WinSock",
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+]
+
+# Release-Build auf kleine Dateigrösse trimmen.
+[profile.release]
+opt-level = "s"       # auf Grösse optimieren ("z" wäre noch kleiner, aber oft langsamer)
+lto = true            # Link-Time-Optimization über alle Crates
+codegen-units = 1     # langsamer zu bauen, dafür kleiner/schneller
+panic = "abort"       # kein Unwinding-Code
+strip = true          # Debug-Symbole entfernen
