@@ -14,6 +14,8 @@ const START_VIEWS: { value: Settings["startView"]; label: string }[] = [
   { value: "tests", label: "Tests" },
   { value: "tables", label: "Tabellen" },
   { value: "lan", label: "LAN" },
+  { value: "wifi", label: "WLAN" },
+  { value: "traffic", label: "Traffic" },
 ];
 
 export function createSettings(): HTMLElement {

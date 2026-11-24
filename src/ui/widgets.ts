@@ -7,6 +7,7 @@
 //   choice()    [2] [4] [8] – Auswahl als Reihe, die gewählte Option invertiert
 //   kvRow()     Label . . . . : Wert   (Punkte-Füller wie bei ipconfig)
 //   prompt()    $ befehl █   (Überschrift mit blinkendem Block-Cursor)
+//   hashBar()   [#####-----] (Signal, Kanal-Belegung)
 import { copyText, h, type Child } from "./dom";
 
 export interface Panel {
@@ -170,6 +171,28 @@ export interface Column<R> {
   width: string;
   cell: (row: R) => Child;
   align?: "right";
+  /** Klick auf den Spaltenkopf sortiert (der Kopf wird dann zum Text-Button) */
+  onSort?: () => void;
+  /** Diese Spalte ist gerade die Sortierung: Pfeil ▲/▼ hinter dem Titel */
+  sorted?: "asc" | "desc";
+}
+
+/** Kopfzelle: Text oder (sortierbar) Button "TITEL ▲" */
+function headCell<R>(c: Column<R>): Child {
+  const title = c.title.toUpperCase();
+  if (!c.onSort) return title;
+  const arrow = c.sorted === "asc" ? " ▲" : c.sorted === "desc" ? " ▼" : "";
+  return h(
+    "button",
+    {
+      class: `thsort${c.sorted ? " active" : ""}`,
+      type: "button",
+      title: "Klicken zum Sortieren",
+      "aria-sort": c.sorted === "asc" ? "ascending" : c.sorted === "desc" ? "descending" : "none",
+      onclick: c.onSort,
+    },
+    title + arrow,
+  );
 }
 
 /** Text-Tabelle mit ausgerichteten Spalten (Kopfzeile gedimmt, in GROSSBUCHSTABEN). */
@@ -184,7 +207,7 @@ export function table<R>(columns: Column<R>[], rows: R[], emptyText = "keine Ein
     return row;
   };
   const el = h("div", { class: "ttable", role: "table" });
-  el.append(line(columns.map((c) => c.title.toUpperCase()), "trow thead"));
+  el.append(line(columns.map((c) => headCell(c)), "trow thead"));
   if (rows.length === 0) el.append(h("div", { class: "dim tempty" }, emptyText));
   for (const r of rows) el.append(line(columns.map((c) => c.cell(r)), "trow"));
   return el;
@@ -218,5 +241,18 @@ export function bar(fraction: number, width = 10): HTMLElement {
     { class: "tbar", "aria-hidden": "true" },
     h("span", { class: "accent-text" }, "█".repeat(full)),
     h("span", { class: "dim" }, "░".repeat(width - full)),
+  );
+}
+
+/** Textbalken wie [#####-----] (z. B. Signal, Kanal-Belegung). Rein als Text, ohne Farbe. */
+export function hashBar(fraction: number, width = 10): HTMLElement {
+  const f = Math.max(0, Math.min(1, Number.isFinite(fraction) ? fraction : 0));
+  const full = Math.round(f * width);
+  return h(
+    "span",
+    { class: "hbar", "aria-hidden": "true" },
+    h("span", { class: "dim" }, "["),
+    h("span", { class: "plain" }, "#".repeat(full)),
+    h("span", { class: "dim" }, "-".repeat(width - full) + "]"),
   );
 }

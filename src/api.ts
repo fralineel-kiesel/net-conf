@@ -32,6 +32,11 @@ import type {
   StartedEvent,
   StepEvent,
   WifiInfo,
+  WifiConnectRequest,
+  WifiProfile,
+  WifiScanResult,
+  TrafficSample,
+  Connection,
 } from "./types";
 
 /** true, wenn wir in der echten Tauri-App laufen. */
@@ -133,6 +138,48 @@ export const backend = {
 
   wolSend: (mac: string, adapter: string, address: string): Promise<WolResult> =>
     isTauri ? invoke<WolResult>("wol_send", { mac, adapter, address }) : mock.wolSend(mac, adapter, address),
+
+  // ---- Phase 4b: WLAN ----
+  /** Netze in der Umgebung (letzter Scan von Windows) */
+  wifiNetworks: (interfaceId: string): Promise<WifiScanResult> =>
+    isTauri ? invoke<WifiScanResult>("wifi_networks", { interfaceId }) : mock.wifiNetworks(interfaceId),
+
+  /** Neuen Scan anstossen – die Liste ist erst nach 3–4 s aktuell */
+  wifiScan: (interfaceId: string): Promise<void> =>
+    isTauri ? invoke<void>("wifi_scan", { interfaceId }) : mock.wifiScan(interfaceId),
+
+  wifiProfiles: (interfaceId: string): Promise<WifiProfile[]> =>
+    isTauri ? invoke<WifiProfile[]>("wifi_profiles", { interfaceId }) : mock.wifiProfiles(interfaceId),
+
+  /** Mit gespeichertem Profil verbinden – wartet auf das Ergebnis (max. 30 s) */
+  wifiConnectProfile: (interfaceId: string, profile: string): Promise<string> =>
+    isTauri
+      ? invoke<string>("wifi_connect_profile", { interfaceId, profile })
+      : mock.wifiConnectProfile(interfaceId, profile),
+
+  /** Neues Profil anlegen + verbinden. `request.password` danach im Aufrufer verwerfen! */
+  wifiConnect: (request: WifiConnectRequest): Promise<string> =>
+    isTauri ? invoke<string>("wifi_connect", { request }) : mock.wifiConnect(request),
+
+  wifiDisconnect: (interfaceId: string): Promise<void> =>
+    isTauri ? invoke<void>("wifi_disconnect", { interfaceId }) : mock.wifiDisconnect(interfaceId),
+
+  wifiForget: (interfaceId: string, profile: string): Promise<void> =>
+    isTauri ? invoke<void>("wifi_forget", { interfaceId, profile }) : mock.wifiForget(interfaceId, profile),
+
+  // ---- Phase 4b: Traffic + Verbindungen ----
+  /** Zähler lesen, Backend rechnet die Raten seit dem letzten Aufruf */
+  trafficPoll: (): Promise<TrafficSample> =>
+    isTauri ? invoke<TrafficSample>("traffic_poll") : mock.trafficPoll(),
+
+  trafficReset: (): Promise<void> => (isTauri ? invoke<void>("traffic_reset") : mock.trafficReset()),
+
+  getConnections: (): Promise<Connection[]> =>
+    isTauri ? invoke<Connection[]>("get_connections") : mock.getConnections(),
+
+  /** Reverse-DNS für EINE Adresse (nur auf Klick) */
+  reverseDns: (address: string): Promise<string | null> =>
+    isTauri ? invoke<string | null>("reverse_dns", { address }) : mock.reverseDns(address),
 
   /** Öffentliche IP über ipify.org – nur auf ausdrücklichen Klick aufrufen! */
   getPublicIp: (): Promise<PublicIp> => (isTauri ? fetchPublicIp() : mock.getPublicIp()),

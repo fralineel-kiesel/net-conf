@@ -298,3 +298,94 @@ export interface WolResult {
   mac: string;
   sentTo: string[];
 }
+
+// ---- Phase 4b: WLAN, Traffic, Verbindungen ---------------------------------
+
+/** So kann Net-Conf verbinden (wifiprofile.rs). null = nicht unterstützt (802.1X, WEP …) */
+export type WifiSecurity = "open" | "wpa2" | "wpa3";
+
+/** Ein Netz in der Umgebung (mehrere APs mit gleicher SSID zusammengefasst) */
+export interface WifiNetwork {
+  /** leer = verstecktes Netz */
+  ssid: string;
+  hidden: boolean;
+  signal: number;
+  rssiDbm: number | null;
+  channel: number | null;
+  band: string | null;
+  apCount: number;
+  /** "OFFEN" | "WPA2" | "WPA3" | "WEP" | "WPA" | "OWE" | "802.1X" | "?" */
+  security: string;
+  connectAs: WifiSecurity | null;
+  connected: boolean;
+  saved: boolean;
+  profile: string;
+}
+
+/** Ein einzelner Access Point (für die Kanal-Belegung) */
+export interface WifiBss {
+  ssid: string;
+  bssid: string;
+  signal: number;
+  rssiDbm: number;
+  frequencyMhz: number;
+  channel: number | null;
+  band: string | null;
+}
+
+export interface WifiScanResult {
+  networks: WifiNetwork[];
+  bss: WifiBss[];
+  hint: string | null;
+}
+
+export interface WifiProfile {
+  name: string;
+  groupPolicy: boolean;
+  perUser: boolean;
+}
+
+/** Neues Netz verbinden. Das Passwort nur hier – nie speichern oder loggen! */
+export interface WifiConnectRequest {
+  interfaceId: string;
+  ssid: string;
+  password: string;
+  security: WifiSecurity;
+  hidden: boolean;
+}
+
+/** Live-Traffic eines Adapters (traffic.rs) */
+export interface IfTraffic {
+  id: string;
+  name: string;
+  description: string;
+  connected: boolean;
+  isVirtual: boolean;
+  rxDelta: number | null;
+  txDelta: number | null;
+  /** bit/s */
+  rxBps: number | null;
+  txBps: number | null;
+  rxLinkBps: number | null;
+  txLinkBps: number | null;
+}
+
+export interface TrafficSample {
+  elapsedMs: number | null;
+  interfaces: IfTraffic[];
+}
+
+/** Eine Verbindung (connections.rs, wie netstat -ano) */
+export interface Connection {
+  proto: "TCP" | "UDP";
+  family: 4 | 6;
+  localAddr: string;
+  localPort: number;
+  /** leer bei UDP */
+  remoteAddr: string;
+  remotePort: number;
+  /** leer bei UDP */
+  state: string;
+  pid: number;
+  process: string;
+}

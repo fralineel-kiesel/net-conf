@@ -14,10 +14,14 @@
 //! * `monitor`  – Ping-Monitor im Hintergrund (läuft weiter beim Seitenwechsel)
 //! * `lan`      – LAN-Scanner (SendARP, nur eigenes privates Subnetz)
 //! * `wol`      – Wake-on-LAN (Magic Packet)
+//! * `wifiprofile` – WLAN-Profil: Eingaben prüfen, XML bauen (ohne Windows-API, getestet)
+//! * `traffic`  – Live-Traffic aus den Adapter-Zählern (GetIfTable2)
+//! * `connections` – TCP/UDP-Verbindungen mit Prozess (wie netstat -ano)
 
 mod actions;
 mod adapters;
 mod config;
+mod connections;
 mod dns;
 mod icmp;
 mod lan;
@@ -26,7 +30,9 @@ mod porttest;
 mod runner;
 mod system;
 mod tables;
+mod traffic;
 mod wifi;
+mod wifiprofile;
 mod wol;
 
 use tauri::{Manager, RunEvent};
@@ -106,12 +112,63 @@ async fn wol_send(mac: String, adapter: String, address: String) -> Result<wol::
     blocking(move || wol::wake(&mac, &adapter, &address)).await
 }
 
+// ---- Phase 4b: WLAN, Traffic, Verbindungen ---------------------------------
+
+#[tauri::command]
+async fn wifi_networks(interface_id: String) -> Result<wifi::WifiScanResult, String> {
+    blocking(move || wifi::networks(&interface_id)).await
+}
+
+#[tauri::command]
+async fn wifi_scan(interface_id: String) -> Result<(), String> {
+    blocking(move || wifi::scan(&interface_id)).await
+}
+
+#[tauri::command]
+async fn wifi_profiles(interface_id: String) -> Result<Vec<wifi::WifiProfile>, String> {
+    blocking(move || wifi::profiles(&interface_id)).await
+}
+
+#[tauri::command]
+async fn wifi_connect_profile(interface_id: String, profile: String) -> Result<String, String> {
+    blocking(move || wifi::connect_profile(&interface_id, &profile)).await
+}
+
+/// Neues Netz verbinden. Das Passwort steht nur in `request` und wird nach
+/// Gebrauch überschrieben – nie loggen, nie in Fehlermeldungen.
+#[tauri::command]
+async fn wifi_connect(request: wifi::WifiConnectRequest) -> Result<String, String> {
+    blocking(move || wifi::connect_new(request)).await
+}
+
+#[tauri::command]
+async fn wifi_disconnect(interface_id: String) -> Result<(), String> {
+    blocking(move || wifi::disconnect(&interface_id)).await
+}
+
+#[tauri::command]
+async fn wifi_forget(interface_id: String, profile: String) -> Result<(), String> {
+    blocking(move || wifi::forget(&interface_id, &profile)).await
+}
+
+#[tauri::command]
+async fn get_connections() -> Result<Vec<connections::Connection>, String> {
+    blocking(connections::list).await
+}
+
+/// Reverse-DNS für eine einzelne Adresse (nur auf Klick in "Verbindungen").
+#[tauri::command]
+async fn reverse_dns(address: String) -> Result<Option<String>, String> {
+    blocking(move || connections::reverse(&address)).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .manage(runner::Runner::default())
         .manage(monitor::Monitor::default())
         .manage(lan::LanScanner::default())
+        .manage(traffic::Traffic::default())
         .invoke_handler(tauri::generate_handler![
             get_adapters,
             dns_query,
@@ -137,6 +194,17 @@ pub fn run() {
             monitor::monitor_clear_log,
             lan::lan_scan_start,
             lan::lan_scan_cancel,
+            wifi_networks,
+            wifi_scan,
+            wifi_profiles,
+            wifi_connect_profile,
+            wifi_connect,
+            wifi_disconnect,
+            wifi_forget,
+            traffic::traffic_poll,
+            traffic::traffic_reset,
+            get_connections,
+            reverse_dns,
         ])
         .build(tauri::generate_context!())
         .expect("Net-Conf konnte nicht gestartet werden");

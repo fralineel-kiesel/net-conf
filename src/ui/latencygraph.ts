@@ -1,4 +1,5 @@
-// Latenz-Graph für Ping: eckige Balken auf einem Canvas, 3 Textzeilen hoch.
+// Block-Graph auf einem Canvas, 3 Textzeilen hoch – für Ping-Latenz,
+// Live-Traffic und WLAN-Signal.
 //
 // Warum Canvas statt Blockzeichen (▁▂▃█)? Bei mehreren Textzeilen hängt es
 // von der Schrift ab, ob zwischen den Zeilen Lücken entstehen. Der Canvas
@@ -7,7 +8,11 @@
 // * Eine Spalte = eine Messung, genau 1 Zeichen breit (wie ein Textraster).
 // * Höhe in 3 × 8 = 24 Stufen (wie drei Zeilen Blockzeichen).
 // * Neueste Messung rechts, der Graph läuft nach links durch.
-// * Keine Antwort: "×" in Fehlerfarbe auf der Grundlinie (nicht Höhe 0).
+// * `null` = kein Wert: Standard "×" in Fehlerfarbe auf der Grundlinie
+//   (Ping: keine Antwort). Mit `nullMark: "none"` bleibt die Spalte leer.
+// * Werte > 0 sind immer mind. 1 Stufe hoch (Ping < 1 ms bleibt sichtbar).
+//   Mit `zeroEmpty: true` zeichnet ein Wert von genau 0 keinen Balken
+//   (Traffic: Stillstand = leer).
 // * Es werden so viele Messungen gezeigt, wie in die Breite passen.
 // * Mini-Variante (`mini: true`) für den Ping-Monitor: 1 Zeile = 8 Stufen,
 //   Skala nur als kurzer Text rechts ("50 ms").
@@ -17,12 +22,33 @@ export interface LatencyGraph {
   el: HTMLElement;
   /** Wie viele Messungen passen gerade in die Breite? */
   capacity(): number;
-  /** Zeichnen: `history` = alle Messungen (null = keine Antwort), `scaleMax` in ms */
+  /** Zeichnen: `history` = alle Messungen (null = kein Wert), `scaleMax` in der Einheit des Graphen */
   render(history: (number | null)[], scaleMax: number): void;
 }
 
-export function createLatencyGraph(opts: { mini?: boolean } = {}): LatencyGraph {
+export interface GraphOptions {
+  mini?: boolean;
+  /** Einheit für die Skala, Standard "ms" */
+  unit?: string;
+  /** Darstellung von `null`: "x" (Standard) oder "none" (leer) */
+  nullMark?: "x" | "none";
+  /** Text neben dem × (Standard "keine Antwort") */
+  nullLabel?: string;
+  /** true: Wert 0 = kein Balken */
+  zeroEmpty?: boolean;
+  /** Bezeichnung für Screenreader */
+  label?: string;
+}
+
+/** Skalen-Zahl ohne unnötige Nachkommastellen, deutsches Komma */
+function fmtScale(v: number): string {
+  return Number.isInteger(v) ? String(v) : v.toLocaleString("de-CH", { maximumFractionDigits: 1 });
+}
+
+export function createLatencyGraph(opts: GraphOptions = {}): LatencyGraph {
   const mini = opts.mini === true;
+  const unit = opts.unit ?? "ms";
+  const nullMark = opts.nullMark ?? "x";
   const LEVELS = (mini ? 1 : 3) * 8;
   const canvas = h("canvas", { class: "lgraph-canvas", "aria-hidden": "true" });
   const scaleLabel = h("div", {}, "");
@@ -32,7 +58,7 @@ export function createLatencyGraph(opts: { mini?: boolean } = {}): LatencyGraph 
     : h("div", { class: "lgraph-axis" }, scaleLabel, h("div", {}, " "), lostLabel);
   const el = h(
     "div",
-    { class: mini ? "lgraph lgraph-mini" : "lgraph", role: "img", "aria-label": "Latenzverlauf" },
+    { class: mini ? "lgraph lgraph-mini" : "lgraph", role: "img", "aria-label": opts.label ?? "Latenzverlauf" },
     canvas,
     axis,
   );
@@ -61,7 +87,9 @@ export function createLatencyGraph(opts: { mini?: boolean } = {}): LatencyGraph 
     last = { history, scaleMax };
     const cssW = canvas.clientWidth;
     const cssH = canvas.clientHeight;
-    scaleLabel.textContent = mini ? `${String(scaleMax).padStart(4)} ms` : `Skala 0-${scaleMax} ms`;
+    scaleLabel.textContent = mini
+      ? `${fmtScale(scaleMax).padStart(4)} ${unit}`
+      : `Skala 0-${fmtScale(scaleMax)} ${unit}`;
     if (cssW === 0 || cssH === 0) return; // unsichtbar (anderer Reiter)
 
     // Für scharfe Kanten in Gerätepixeln zeichnen
@@ -93,6 +121,7 @@ export function createLatencyGraph(opts: { mini?: boolean } = {}): LatencyGraph 
       const x0 = Math.round((offset + i) * colPx);
       const x1 = Math.round((offset + i + 1) * colPx) - gap;
       if (v === null) {
+        if (nullMark === "none") return;
         lost++;
         ctx.fillStyle = color("--err");
         ctx.font = `${(mini ? 11 : 13) * dpr}px ${color("--font") || "monospace"}`;
@@ -101,7 +130,8 @@ export function createLatencyGraph(opts: { mini?: boolean } = {}): LatencyGraph 
         ctx.fillText("×", (x0 + x1) / 2, hgt);
         return;
       }
-      // Stufe 1..24: proportional ab 0 ms, aber jede Antwort bleibt sichtbar
+      if (opts.zeroEmpty && v <= 0) return;
+      // Stufe 1..24: proportional ab 0, aber jeder Wert > 0 bleibt sichtbar
       const level = Math.min(LEVELS, Math.max(1, Math.round((v / scaleMax) * LEVELS)));
       const barH = Math.round((level / LEVELS) * hgt);
       ctx.fillStyle = color("--accent");
@@ -109,7 +139,7 @@ export function createLatencyGraph(opts: { mini?: boolean } = {}): LatencyGraph 
     });
 
     lostLabel.replaceChildren();
-    if (lost > 0) lostLabel.append(h("span", { class: "tag-err" }, "×"), " keine Antwort");
+    if (lost > 0) lostLabel.append(h("span", { class: "tag-err" }, "×"), ` ${opts.nullLabel ?? "keine Antwort"}`);
   };
 
   // Bei Grössenänderung neu messen und neu zeichnen

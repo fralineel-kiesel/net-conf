@@ -4,7 +4,8 @@
 Net-Conf ist ein Netzwerk-Helfer für den Arbeitsalltag unter **Windows 11 (x64)**.
 Er zeigt die Infos von `ipconfig /all` als Panels, bietet Buttons für häufige
 Netzwerk-Befehle und Diagnose-Werkzeuge (Ping, Traceroute, DNS, Port-Test,
-Health-Check, Ping-Monitor, ARP/Routen, WLAN, LAN-Scanner, Wake-on-LAN). Look: TUI wie htop/btop, aber mit Maus-Bedienung.
+Health-Check, Ping-Monitor, ARP/Routen, WLAN-Verwaltung, LAN-Scanner, Wake-on-LAN, Live-Traffic,
+Verbindungen/Prozesse). Look: TUI wie htop/btop, aber mit Maus-Bedienung.
 Der Entwickler ist Informatik-Lehrling (Systemtechnik), kein Rust-Profi:
 Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** kommentieren.
 
@@ -20,14 +21,19 @@ Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** komme
 - Der echte Build läuft **nur in GitHub Actions** (`.github/workflows/build.yml`, `windows-latest`).
 - Lokal prüfbar:
   - `npm run build` – Typecheck + Frontend-Build
-  - `npm test` – Tests der Ping-Graph-Skala und der Health-Check-Bewertung
-    (`scripts/pingscale.test.ts`, `scripts/health.test.ts`, Node ≥ 22, ohne Test-Framework).
+  - `npm test` – Tests der Graph-Skalen (Ping + Traffic), der Health-Check-Bewertung und der Phase-4b-Helfer
+    (`scripts/pingscale.test.ts`, `scripts/health.test.ts`, `scripts/traffic.test.ts`, Node ≥ 22, ohne Test-Framework).
+    Kein `constructor(private x)` in Modulen, die Node lädt (Strip-Modus kennt keine Parameter Properties).
     Importe zwischen Modulen, die Node laden soll, mit `.ts`-Endung schreiben (z. B. `health.ts` → `./netutil.ts`).
   - `npm run dev` – UI im Browser mit Mock-Daten (`src/mock.ts` + `src/mock-diag.ts`), `?admin=1` simuliert Adminrechte,
     `?fail=renew` lässt jeden Aktions-Schritt scheitern, dessen Befehl „renew“ enthält (Fehlerpfad testen),
-    `?net=offline|apipa|nogateway|dnsfail|noicmp` spielt Fehlerfälle für den Health-Check durch.
+    `?net=offline|apipa|nogateway|dnsfail|noicmp` spielt Fehlerfälle für den Health-Check durch,
+    `?wifi=none|multi|location` WLAN-Randfälle (kein Adapter / zwei Adapter / Standort aus),
+    `?conns=many` 1200 Verbindungen (Grenze 500 Zeilen). WLAN-Mock: Passwort mit „falsch“ = falsches Passwort,
+    Netz „Hotspot-Handy“ = Zeitüberschreitung (`src/mock-wifi.ts`).
   - `cd src-tauri && cargo test` – Rust-Tests (Validierung, Aktions-Abläufe, DNS-Parser, Port-Test, config.json,
-    Monitor-Logik, Subnetz-Regeln, MAC/Magic Packet). Unter Linux braucht das `libwebkit2gtk-4.1-dev`.
+    Monitor-Logik, Subnetz-Regeln, MAC/Magic Packet, WLAN-Profil-XML/Escaping, Netze zusammenfassen,
+    Traffic-Raten/Zähler-Reset, TCP-Zustände). Unter Linux braucht das `libwebkit2gtk-4.1-dev`.
     `cargo test -- --ignored` macht zusätzlich echte DNS-Abfragen (braucht Netz; in der Cloud-Sandbox
     werden nur freigegebene Hosts wie github.com aufgelöst).
   - `cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc` – **typprüft den Windows-Code**
@@ -47,7 +53,11 @@ src-tauri/src/
   dns.rs       eigener kleiner DNS-Client über UDP (wie nslookup), reines Rust, ohne unsafe
   porttest.rs  TCP-Connect-Test, parallel pro Port (offen/geschlossen/gefiltert)
   tables.rs    ARP (GetIpNetTable2) und Routen (GetIpForwardTable2)
-  wifi.rs      WLAN über wlanapi.dll (SSID, Signal, Kanal, Band, Sicherheit)
+  wifi.rs      WLAN über wlanapi.dll: Status, Scan, Netzliste (pro SSID zusammengefasst), Profile,
+               Verbinden (WlanSetProfile + WlanConnect, Ergebnis per Notification-Callback), Trennen, Vergessen
+  wifiprofile.rs  reine Logik: SSID/Passwort prüfen, Profil-XML bauen + escapen, Passwort-Puffer überschreiben
+  traffic.rs   Live-Traffic: GetIfTable2-Zähler → Raten (Backend-State, Zähler-Reset → null)
+  connections.rs  TCP/UDP-Tabellen (GetExtendedTcp/UdpTable, IPv4+IPv6, PID → Prozessname), Reverse-DNS auf Klick
   icmp.rs      native Pings (IcmpSendEcho, ohne ping.exe/Admin), Resolver mit Zeitlimit, parallel_map
   config.rs    config.json in %APPDATA%\Net-Conf (Monitor-Ziele, WoL-Geräte), atomar, .bak bei Defekt
   monitor.rs   Ping-Monitor im Backend-Thread (Stats, DOWN nach 2 Timeouts, Ausfall-Log, Events)
@@ -68,12 +78,16 @@ src/
   health.ts    Health-Check: Ablauf (Fakten sammeln) + reine Bewertung evaluate()/diagnose() (getestet)
   netutil.ts   reine IPv4-/Adapter-Helfer (primaryOf, maskToPrefix, scanBlockReason, normalizeMac …)
   nav.ts       Sprünge zwischen Ansichten ohne Import-Schleifen (z. B. LAN-Scanner → Ping-Test)
+  wifiutil.ts  reine WLAN-Helfer (Kanal-Belegung, Passwort-/SSID-Prüfung als Komfort, Textbalken)
+  traffic.ts   reine Traffic-Helfer (Formatierung Mbit/s·MB/s, Filter/Sortierung der Verbindungen)
+  mock-wifi.ts Mock für WLAN, Traffic, Verbindungen
   views/       overview.ts (ASCII-Titel, SYSTEM, öffentliche IP, WLAN), actions.ts, tables.ts, settings.ts,
                lan.ts (Scanner + Wake-on-LAN), tests.ts (Reiter) + tests/ping.ts, tracert.ts, dns.ts,
-               port.ts, health.ts, monitor.ts
+               port.ts, health.ts, monitor.ts, wifi.ts (F7), traffic.ts (Reiter) + traffic/live.ts, connections.ts
   ui/          dom.ts (h()-Helfer, Logo, Clipboard), widgets.ts (TUI-Bausteine),
                statusbar.ts (Rückmeldungen statt Toasts), console.ts, modal.ts,
-               latencygraph.ts (Ping-Graph auf Canvas, `mini: true` = 1 Zeile für den Monitor), admin.ts
+               latencygraph.ts (Block-Graph auf Canvas für Ping/Traffic/WLAN-Signal, Optionen `unit`,
+               `nullMark`, `zeroEmpty`; `mini: true` = 1 Zeile für den Monitor), admin.ts
 assets/logo.svg  Quelle des Logos (Icons + Inline-SVG in der Kopfzeile)
 assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 ```
@@ -103,6 +117,9 @@ assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 - Viele kurze Pings (Health, Monitor, Scan, WoL-Check) **nur über `icmp.rs`** (IcmpSendEcho), nie ping.exe.
   Der Ping-Test (Tests → Ping) bleibt bei ping.exe, damit man dort die echte Windows-Ausgabe sieht.
 - Parallelität immer begrenzen (`icmp::parallel_map`): Scan 64, Monitor ≤ 20 (= max. Ziele).
+- Seiten mit Timern (WLAN 2 s, Traffic 1 s, Verbindungen-Auto 2 s) messen **nur, solange sie sichtbar sind**:
+  `activate()`/`deactivate()` über `lifecycle` in `main.ts`. Timer als `setTimeout`-Kette mit Generationszähler
+  (keine überlappenden Aufrufe, nach dem Verlassen kein Takt mehr).
 - Dauerhafte Daten, die das Backend kennen muss (Monitor-Ziele, WoL-Geräte), in `config.json` über
   `config.rs` – nie direkt schreiben. Beim Speichern streng prüfen, beim Laden Ungültiges verwerfen.
   Reine Anzeige-Einstellungen bleiben im localStorage (`settings.ts`).
@@ -118,6 +135,31 @@ assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 - WoL: MAC im Backend prüfen (`wol::parse_mac`, Formate `AA-BB-…`, `AA:BB:…`, `AABB…`, kein Multicast/00/FF),
   gesendet wird nur per Broadcast über einen echten Adapter (Socket an dessen IP gebunden):
   an die Subnetz-Broadcast-Adresse und an 255.255.255.255, UDP-Port 9.
+
+### Sicherheitsregeln WLAN (F7)
+- **Kein `netsh wlan`** – alles über wlanapi (`wifi.rs`). Das Frontend schickt nur die Interface-GUID
+  (wird mit `WlanEnumInterfaces` **verglichen**, nie selbst geparst), Profilnamen (müssen exakt in
+  `WlanGetProfileList` stehen) und für neue Netze SSID + Passwort + Sicherheit.
+- **Passwort nie loggen/speichern:** nicht in Konsole, Statusleiste, Fehlermeldungen, localStorage oder
+  config.json. `WifiConnectRequest` hat **kein** `Debug`-derive. Nach Gebrauch werden Passwort-String und
+  XML-Puffer überschrieben (`wifiprofile::wipe_string/wipe_wide`). Im Frontend wird das Feld beim Absenden
+  geleert und die Referenz verworfen; Formular schliessen/Seite verlassen leert es ebenfalls.
+  Das Passwortfeld ist absichtlich `type="text"` (sichtbar beim Tippen, so gewünscht), `spellcheck`/`autocomplete` aus.
+- **XML-Escaping:** SSID und Passwort gehen nur escaped (`& < > " '`) ins Profil-XML (`wifiprofile::profile_xml`,
+  mit Tests); die SSID steht zusätzlich als Hex drin. Validierung: SSID 1–32 **Byte**, keine Steuerzeichen;
+  WPA2: 8–63 druckbare ASCII-Zeichen oder 64 Hex, WPA3 (SAE): 8–63, offen: kein Passwort.
+- Profile: WPA2PSK/AES, WPA3SAE/AES oder open/none, `connectionMode auto`, `nonBroadcast` bei versteckten Netzen,
+  `WlanSetProfile` mit Flags 0 (normales Profil für alle Benutzer – wie Windows selbst).
+- Bei sichtbaren Netzen bestimmt das **Backend** die Sicherheit (aus der Netzliste), die Wahl im Frontend gilt nur
+  für versteckte Netze. 802.1X/Enterprise, WEP, WPA1, OWE: nicht unterstützt → „[802.1X] nicht unterstützt, bitte
+  über Windows verbinden“. Gruppenrichtlinien-Profile (GPO) werden weder überschrieben noch gelöscht.
+- Scheitert die Verbindung, bleibt **kein** Profil mit falschem Passwort zurück: neues Profil wird gelöscht,
+  ein überschriebenes aus der Sicherung (`WlanGetProfile`, Schlüssel verschlüsselt) wiederhergestellt.
+- Ergebnis über `WlanRegisterNotification` (eigenes Handle; erst nach `WlanCloseHandle` den Kontext freigeben),
+  max. 30 s. `strProfileXml` aus der Notification nie lesen. Gründe → deutsche Texte (`wifi::explain_reason`):
+  falsches Passwort, Zeitüberschreitung, nicht erreichbar; sonst Windows-Text (`WlanReasonCodeToString`).
+- Trennen und Vergessen sind [!]-Aktionen mit `confirmDialog({ danger: true })`. Es läuft immer nur ein
+  Verbindungsversuch (`ConnectGuard`).
 
 ## Design-Regeln: TUI-Look (wie htop, btop, lazygit)
 Die App soll wie eine Terminal-Oberfläche wirken, bleibt aber per Maus bedienbar.
@@ -149,7 +191,9 @@ Bausteine (`src/ui/widgets.ts`) – immer diese verwenden:
 - `tag()` – Status als Text in eckigen Klammern: `[ONLINE]`, `[OFFLINE]`, `[DHCP]`, `[STATISCH]`, `[PRIMÄR]`,
   `[ADMIN]`, `[USER]`, `[!]` (unterbricht/ändert das Netz, rot).
 - `tabs()` – Reiter `[Ping]  Traceroute  DNS` (aktiv/inaktiv gleich breit).
-- `table()` – Text-Tabelle mit ausgerichteten Spalten (Kopfzeile gedimmt, GROSS).
+- `table()` – Text-Tabelle mit ausgerichteten Spalten (Kopfzeile gedimmt, GROSS). Mit `onSort`/`sorted`
+  pro Spalte wird der Kopf zum Sortier-Button `PROZESS ▲`.
+- `hashBar()` – Textbalken `[#####-----]` (WLAN-Signal, Kanal-Belegung).
 - `copyable()` – Wert, der sich per Klick kopiert; `bar()` – Balken `██████░░░░`.
 - Rückmeldungen (z. B. `kopiert: <Wert>`, Fehler) über `status()` in die Statusleiste – keine Toasts.
 
@@ -171,12 +215,12 @@ Layout:
 | F4 | Tabellen | ARP- und Routing-Tabelle |
 | F5 | – | Neu laden |
 | F6 | LAN | Reiter Scanner · Wake-on-LAN (nochmal F6 = nächster Reiter) |
-| F7 | *(reserviert)* | WLAN |
-| F8 | *(reserviert)* | Traffic |
+| F7 | WLAN | Verbindung (live, Signal-Graph), Netze in der Umgebung, Kanal-Belegung, Profile, Verbinden |
+| F8 | Traffic | Reiter Live · Verbindungen (nochmal F8 = nächster Reiter) |
 | F9 | *(reserviert)* | Werkzeuge |
 | F10 | Einstellungen | Akzentfarbe, Ping-Ziel, Konsole, Start-Ansicht, Speicherorte |
 
-Neue Seite: `ViewId` in `settings.ts`, `NAV` + `views` in `main.ts`, `START_VIEWS` in `views/settings.ts`.
+Neue Seite: `ViewId` in `settings.ts`, `NAV` + `views` (+ ggf. `lifecycle`) in `main.ts`, `START_VIEWS` in `views/settings.ts`.
 
 ## Diagnose (Phase 4a)
 - **Health-Check** (Tests → Health): 6 Stufen nacheinander – Adapter mit Gateway, IPv4 ohne APIPA,
@@ -195,6 +239,24 @@ Neue Seite: `ViewId` in `settings.ts`, `NAV` + `views` in `main.ts`, `START_VIEW
   (pro Gerät zweimal: erst MAC, dann Latenz/Name). Eigene IP = MAC aus der Adapterliste.
 - **Wake-on-LAN** (LAN → Wake-on-LAN): Geräteliste in config.json, nach dem Senden Ping-Check alle 2 s
   für max. 60 s (nur wenn IP bekannt). „Gesendet“ heisst nicht „aufgewacht“ – steht so im Panel.
+
+## WLAN, Traffic, Verbindungen (Phase 4b)
+- **WLAN (F7):** VERBINDUNG alle 2 s (`get_wifi`), Signal-Graph über 1 min (30 Werte, feste Skala 0–100 %,
+  getrennt = ×), [ Trennen ] [!]. NETZE: [ Scannen ] = `WlanScan`, nach 3,5 s Liste neu laden; Spalten SSID
+  (versteckt = `<versteckt>`), Signal `[#####-----] %`, Kanal, Band, Sicherheit, AP, [VERBUNDEN]/[GESPEICHERT];
+  gleiche SSID = eine Zeile (stärkster AP, Anzahl AP), sortiert nach Signal. KANAL-BELEGUNG: 2,4 GHz immer
+  Kanal 1–13, 5/6 GHz nur belegte, eigener Kanal [EIGENER]. Mehrere WLAN-Adapter → Auswahl.
+  Leere Liste / keine SSIDs → Hinweis „Windows blendet WLAN-Namen aus …“ (`NAMES_HIDDEN_HINT`).
+- **Traffic → Live (F8):** `traffic_poll` 1×/s nur bei offener Seite (`traffic_reset` beim Öffnen). Backend hält
+  den letzten Zählerstand (Tauri-State `Traffic`); negative Differenz (Zähler-Reset) oder Pause > 5 s → `null`
+  (Lücke im Graphen, keine Spitze). Nur Adapter aus der Übersicht (GUID-Abgleich), Filter-Interfaces fallen weg,
+  virtuell = nicht `HardwareInterface` (ausblendbar). Anzeige Mbit/s **und** MB/s (dezimal), Spitze, Summe seit
+  Messbeginn (Öffnen, Adapterwechsel, [ Zurücksetzen ]), Link-Geschwindigkeit.
+- **Traffic → Verbindungen:** TCP/UDP, IPv4/IPv6 mit PID; PID 0/4 = „System“, ohne Zugriff „(kein Zugriff)“.
+  Textfilter über alle Spalten, [Alle] [LISTEN] (inkl. UDP) [ESTABLISHED], Sortierung per Spaltenkopf,
+  Auto alle 2 s (Standard aus, nur bei sichtbarem Reiter). Klick auf Adresse kopiert die IP, [ Auflösen ] =
+  PTR für diese eine Adresse (`reverse_dns`). Max. 500 Zeilen, dann Hinweis „Filter verwenden“.
+  Bewusst **kein** „Prozess beenden“. (Die Seite Tabellen F4 hat nur ARP/Routen – kein Duplikat.)
 
 ## Aktionen (F2) – Whitelist über Aktions-IDs
 Das Frontend schickt nur `run_action(runId, action, adapter)`. Programme (immer `%SystemRoot%\System32\…`),
@@ -232,12 +294,17 @@ Regeln:
   Reparatur-Aktionen zeigen nach Erfolg „Neustart erforderlich“ (Dialog + Hinweis im Panel).
 - Vor neuen Aktionen prüfen, ob es sie schon gibt (z. B. Tabellen F4 zeigt ARP nur an).
 
-## Ping-Graph (Skala)
-- Balken proportional ab **0 ms** (fester Nullpunkt, nie ab dem Minimum). Jede Antwort mind. 1 Stufe hoch.
-- Obergrenze = nächste Stufe aus `[10, 20, 50, 100, 200, 500, 1000]` ms über dem Maximum der
+## Graph-Skalen (Ping und Traffic)
+- Beide nutzen `StepScale` aus `pingscale.ts` (`LatencyScale`, `TrafficScale`), Tests: `npm test`.
+- Balken proportional ab **0** (fester Nullpunkt, nie ab dem Minimum). Jeder Wert > 0 mind. 1 Stufe hoch.
+- **Ping:** Obergrenze = nächste Stufe aus `[10, 20, 50, 100, 200, 500, 1000]` ms über dem Maximum der
   **sichtbaren** Werte, mindestens 10 ms (über 1000: volle Sekunden).
-- Hysterese: wächst **sofort**; schrumpft erst, wenn das Maximum über **10 Messungen** in Folge
-  ≤ 80 % einer kleineren Stufe lag (`pingscale.ts`, Test: `npm test`).
+- **Traffic:** Stufen `[1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]` Mbit/s, mindestens 1 (über 1000: volle 1000er).
+  Wert 0 = kein Balken (`zeroEmpty`), fehlende Messung = Lücke (`nullMark: "none"`). Je ein Graph für
+  Download und Upload, 3 Zeilen hoch, Skala-Label rechts („Skala 0-100 Mbit/s“).
+- **WLAN-Signal:** feste Skala 0–100 %, keine Hysterese.
+- Hysterese (Ping + Traffic): wächst **sofort**; schrumpft erst, wenn das Maximum über **10 Messungen** in Folge
+  ≤ 80 % einer kleineren Stufe lag.
 - 3 Textzeilen hoch = 24 Stufen, gezeichnet auf Canvas (keine Zeilenlücken), 1 Spalte = 1 Zeichen breit,
   neueste Messung rechts. Zeitüberschreitung = rotes `×` auf der Grundlinie. Skala steht rechts daneben.
 - Die Statistik (gesendet/empfangen/Verlust, min/avg/max) wird nie geglättet.
@@ -278,9 +345,12 @@ Regeln:
   mit Abläufen (Release + Renew u. a.), Ping-Anzahl wählbar, ruhiger Ping-Graph.
 - **Phase 4a (fertig, v0.4.0):** ICMP-Modul (IcmpSendEcho), config.json-Persistenz, Health-Check,
   Ping-Monitor im Hintergrund, LAN-Scanner (F6) mit Reverse-DNS, Wake-on-LAN mit Ping-Check.
+- **Phase 4b (fertig, v0.5.0):** WLAN-Seite (F7) mit Scan, Kanal-Belegung, Profilen, Verbinden/Trennen/Vergessen;
+  Traffic-Seite (F8) mit Live-Raten und Verbindungen/Prozessen.
 - **Ideen für später (NICHT bauen ohne Auftrag):**
-  - F7 WLAN: WLAN-Umgebung scannen (alle Netze mit Kanal/Signal, Kanalbelegung als Blockgrafik)
-  - F8 Traffic, F9 Werkzeuge (Inhalt noch offen)
+  - F9 Werkzeuge (Inhalt noch offen)
+  - Traffic: Verlauf pro Prozess (bräuchte ETW – deutlich aufwendiger)
+  - WLAN: OWE/WPA3-Übergangsmodus gezielt unterstützen, 802.1X bewusst nicht
   - Hersteller zur MAC (OUI) im LAN-Scanner: nur mit kompakter eingebetteter Tabelle (< 300 KB);
     die volle IEEE-Liste ist deutlich grösser – daher in 4a weggelassen
   - IPv6 im ICMP-Modul (Icmp6SendEcho2) für Monitor/Health

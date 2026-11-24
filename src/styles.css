@@ -909,3 +909,106 @@ p {
 .trow + .trow:has(.cell-lines) {
   margin-top: 4px;
 }
+
+/* ---------- Phase 4b: WLAN, Traffic, Verbindungen -------------------------- */
+
+/* Sortierbarer Tabellenkopf: Text-Button, gleiche Farbe wie der Kopf */
+.thsort {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  white-space: pre;
+  cursor: pointer;
+}
+.thsort.active {
+  color: var(--text);
+}
+.thsort:hover,
+.thsort:focus-visible {
+  background: var(--accent);
+  color: var(--bg);
+}
+.hbar {
+  white-space: pre;
+}
+/* Zellen ohne Umbruch, zu Langes mit … (ganzer Text im Tooltip) */
+.ellipsis {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Klickbare SSID in der Netzliste: wie ein Wert, Hover invertiert */
+.pick {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--bright);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pick:hover,
+.pick:focus-visible {
+  background: var(--accent);
+  color: var(--bg);
+}
+.pick.hidden-ssid {
+  color: var(--dim);
+}
+/* Tabellen mit vielen Zeilen: Zeilen mittig ausrichten */
+.wifi-table .trow,
+.conn-table .trow,
+.chan-table .trow {
+  align-items: center;
+}
+.band-head {
+  color: var(--dim);
+  margin-top: 4px;
+}
+.band-head:first-child {
+  margin-top: 0;
+}
+/* Kanal-Belegung: Netze als eine Zeile mit … */
+.chan-table .trow {
+  column-gap: 1ch;
+}
+/* Verbindungen: kompakter Spaltenabstand, damit 900 px reichen */
+.conn-table .trow {
+  column-gap: 1ch;
+}
+.resolved {
+  color: var(--dim);
+}
+/* Zwei Graphen (Download/Upload) nebeneinander, schmal untereinander */
+.traffic {
+  container: traffic / inline-size;
+}
+.traffic-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 2ch;
+}
+/* Nebeneinander nur bei sehr breitem Fenster – sonst wären die Graphen zu kurz */
+@container traffic (max-width: 170ch) {
+  .traffic-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.traffic-grid .kv-row {
+  grid-template-columns: 12ch 3ch minmax(0, 1fr);
+}
+/* Schreibgeschütztes Feld (SSID eines sichtbaren Netzes): ohne Unterlinie */
+.tinput[readonly] {
+  border-bottom-color: transparent;
+  color: var(--text);
+}
+/* Zweite Zeile (z. B. aufgelöster Name) nie breiter als die Spalte */
+.cell-lines > .ellipsis {
+  max-width: 100%;
+}

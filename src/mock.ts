@@ -5,6 +5,8 @@
 //   ?admin=1     tut so, als liefe die App mit Administratorrechten
 //   ?fail=renew  jeder Aktions-Schritt, dessen Befehl "renew" enthält, scheitert
 //   ?net=…       Netzwerk-Szenarien für den Health-Check (siehe mock-diag.ts)
+//   ?wifi=…      WLAN-Randfälle: none | multi | location (siehe mock-wifi.ts)
+//   ?conns=many  1200 Verbindungen (Grenze von 500 Zeilen testen)
 import { actionById, type ActionStep } from "./actions";
 import { events } from "./events";
 import { validateTarget } from "./validate";
@@ -20,7 +22,6 @@ import {
   type PortTestResponse,
   type PublicIp,
   type RouteEntry,
-  type WifiInfo,
 } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
@@ -516,31 +517,6 @@ export async function getRouteTable(): Promise<RouteEntry[]> {
   ];
 }
 
-export async function getWifi(): Promise<WifiInfo[]> {
-  return [
-    {
-      interfaceId: "{A1B2C3D4-0001}",
-      description: "Intel(R) Wi-Fi 6 AX201 160MHz",
-      connected: true,
-      state: "verbunden",
-      ssid: "FRITZ!Box 7590 XY",
-      bssid: "3C-A6-2F-11-22-34",
-      profile: "FRITZ!Box 7590 XY",
-      signalQuality: 78,
-      rssiDbm: -58,
-      channel: 36,
-      frequencyMhz: 5180,
-      band: "5 GHz",
-      phy: "802.11ax (Wi-Fi 6/6E)",
-      rxMbps: 866.7,
-      txMbps: 721.6,
-      auth: "WPA2-Personal",
-      cipher: "AES (CCMP)",
-      error: null,
-    },
-  ];
-}
-
 export async function getPublicIp(): Promise<PublicIp> {
   await delay(400);
   return { ipv4: "203.0.113.42", ipv6: "2a02:1210:5e0c:a100:1c2d:3e4f:5a6b:7c8d" };
@@ -548,3 +524,6 @@ export async function getPublicIp(): Promise<PublicIp> {
 
 // ---- Phase 4a ----------------------------------------------------------------
 export * from "./mock-diag";
+
+// ---- Phase 4b: WLAN-Status (auch Übersicht), WLAN-Seite, Traffic, Verbindungen ----
+export * from "./mock-wifi";
