@@ -11,6 +11,8 @@ import { initUpdates } from "./ui/updates";
 import { createStatusbar, status } from "./ui/statusbar";
 import { tag, tbutton } from "./ui/widgets";
 import { nav } from "./nav";
+import { registerCommand, registerCommands } from "./registry";
+import { paletteOpen, togglePalette } from "./ui/palette";
 import { createActions } from "./views/actions";
 import { createLan } from "./views/lan";
 import { createOverview } from "./views/overview";
@@ -122,6 +124,25 @@ function main(): void {
   };
   nav.show = show;
 
+  // Befehlspalette: alle Seiten + Neu laden
+  registerCommands(
+    NAV.map((n) => ({
+      id: `page.${n.id}`,
+      title: `Gehe zu ${n.label}`,
+      category: "SEITE" as const,
+      hint: n.key,
+      run: () => show(n.id),
+    })),
+  );
+  registerCommand({
+    id: "app.reload",
+    title: "Neu laden",
+    category: "AKTION",
+    hint: "F5",
+    keywords: "aktualisieren refresh adapter",
+    run: () => reload(),
+  });
+
   const sidebar = h(
     "nav",
     { class: "sidebar", "aria-label": "Bereiche" },
@@ -154,10 +175,16 @@ function main(): void {
   document.addEventListener(
     "keydown",
     (e) => {
+      // Strg+K: Befehlspalette (nicht, solange ein Dialog offen ist)
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (!dialogOpen()) togglePalette();
+        return;
+      }
       const nav = NAV.find((n) => n.key === e.key);
       if (!nav && e.key !== "F5") return;
       e.preventDefault();
-      if (dialogOpen()) return;
+      if (dialogOpen() || paletteOpen()) return;
       if (nav?.id === "tests" && currentView === "tests") tests.next();
       else if (nav?.id === "lan" && currentView === "lan") lan.next();
       else if (nav?.id === "traffic" && currentView === "traffic") traffic.next();

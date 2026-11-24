@@ -29,6 +29,8 @@ import { status } from "../ui/statusbar";
 import { checkForUpdates, lastCheck } from "../ui/updates";
 import { checkbox, copyable, kvRow, panel, prompt, radio, tag, tbutton } from "../ui/widgets";
 import { validateTarget } from "../validate";
+import { registerCommand, registerCommands } from "../registry";
+import { nav } from "../nav";
 
 const START_VIEWS: { value: Settings["startView"]; label: string }[] = [
   { value: "last", label: "Zuletzt verwendet" },
@@ -308,6 +310,36 @@ export function createSettings(): HTMLElement {
     if (rows[expected] !== active) renderLook();
   });
   onConfigChange(renderWindow);
+
+  // Befehlspalette: Themes, Schriftgrösse, Update-Prüfung
+  registerCommands(
+    THEMES.map((t) => ({
+      id: `setting.theme.${t.id}`,
+      title: `Theme: ${t.label}`,
+      category: "EINSTELLUNG" as const,
+      hint: t.description,
+      keywords: "farbe darstellung aussehen",
+      run: () => pickTheme(t),
+    })),
+  );
+  registerCommands([
+    { id: "setting.font.up", title: "Schrift grösser", category: "EINSTELLUNG", hint: "Strg +", keywords: "zoom schriftgrösse", run: () => changeFont(settings.fontSize + 1) },
+    { id: "setting.font.down", title: "Schrift kleiner", category: "EINSTELLUNG", hint: "Strg −", keywords: "zoom schriftgrösse", run: () => changeFont(settings.fontSize - 1) },
+    { id: "setting.font.reset", title: `Schrift Standard (${FONT_DEFAULT} px)`, category: "EINSTELLUNG", hint: "Strg 0", keywords: "zoom schriftgrösse zurücksetzen", run: () => changeFont(FONT_DEFAULT) },
+  ]);
+  registerCommand({
+    id: "setting.update",
+    title: "Nach Updates suchen",
+    category: "EINSTELLUNG",
+    keywords: "version release neu",
+    run: async () => {
+      nav.show("settings");
+      status("Suche nach Updates …");
+      const r = await checkForUpdates(true);
+      status(r.text, r.ok ? "ok" : "error");
+      renderUpdates();
+    },
+  });
 
   renderLook();
   renderGeneral();

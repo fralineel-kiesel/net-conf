@@ -5,7 +5,7 @@ import type { ViewId } from "./settings";
 
 export const nav = {
   show: (_view: ViewId): void => {},
-  showTestsTab: (_tab: "ping" | "tracert" | "dns"): void => {},
+  showTestsTab: (_tab: "ping" | "tracert" | "dns" | "port" | "health" | "monitor"): void => {},
   startPing: (_target: string): void => {},
   // Phase 4c (Befehlspalette, Werkzeuge)
   startTracert: (_target: string): void => {},
@@ -14,6 +14,7 @@ export const nav = {
   openSubnet: (_text: string): void => {},
   applyProfile: (_name: string): void => {},
   showToolsTab: (_tab: "subnet" | "profiles"): void => {},
+  startHealth: (): void => {},
 };
 
 /** Zum Ping-Test springen und dort `target` anpingen (z. B. aus dem LAN-Scanner). */

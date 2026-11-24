@@ -1,5 +1,6 @@
 // Ansicht "Tests": Reiter für Ping, Traceroute, DNS, Port-Test, Health-Check und Monitor.
 import { nav } from "../nav";
+import { registerCommands } from "../registry";
 import { h, prefs } from "../ui/dom";
 import { tabs } from "../ui/widgets";
 import { createDns } from "./tests/dns";
@@ -51,6 +52,18 @@ export function createTests(): TestsView {
   const el = h("section", { class: "view", "data-view": "tests" }, bar.el, ...Object.values(views));
   show(current);
   nav.showTestsTab = show;
+  registerCommands(
+    TABS.map((t) => ({
+      id: `tab.tests.${t.value}`,
+      title: `Tests: ${t.label}`,
+      category: "SEITE" as const,
+      hint: "F3",
+      run: () => {
+        nav.show("tests");
+        show(t.value);
+      },
+    })),
+  );
 
   return {
     el,

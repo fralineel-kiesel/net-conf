@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
-    "test": "node --experimental-strip-types --no-warnings scripts/pingscale.test.ts && node --experimental-strip-types --no-warnings scripts/health.test.ts && node --experimental-strip-types --no-warnings scripts/traffic.test.ts && node --experimental-strip-types --no-warnings scripts/subnet.test.ts && node --experimental-strip-types --no-warnings scripts/theme.test.ts"
+    "test": "node --experimental-strip-types --no-warnings scripts/pingscale.test.ts && node --experimental-strip-types --no-warnings scripts/health.test.ts && node --experimental-strip-types --no-warnings scripts/traffic.test.ts && node --experimental-strip-types --no-warnings scripts/subnet.test.ts && node --experimental-strip-types --no-warnings scripts/theme.test.ts && node --experimental-strip-types --no-warnings scripts/fuzzy.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.5"

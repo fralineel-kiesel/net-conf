@@ -1,5 +1,8 @@
 // Ansicht "Werkzeuge" (F9): Reiter Subnetz-Rechner und IP-Profile.
 import { nav } from "../nav";
+import { config } from "../config";
+import { registerCommand, registerCommands } from "../registry";
+import { parseInput } from "../subnet";
 import { h, prefs } from "../ui/dom";
 import { tabs } from "../ui/widgets";
 import { createProfiles } from "./tools/profiles";
@@ -46,6 +49,51 @@ export function createTools(): ToolsView {
     void profiles.applyByName(name);
   };
   nav.showToolsTab = show;
+
+  // Befehlspalette
+  registerCommands(
+    TABS.map((t) => ({
+      id: `tab.tools.${t.value}`,
+      title: `Werkzeuge: ${t.label}`,
+      category: "SEITE" as const,
+      hint: "F9",
+      run: () => {
+        nav.show("tools");
+        show(t.value);
+      },
+    })),
+  );
+  registerCommand({
+    id: "tool.subnet",
+    title: "subnet <ip/cidr>",
+    category: "TOOL",
+    keywords: "subnetz rechner ipcalc maske netz",
+    param: {
+      keyword: "subnet",
+      placeholder: "<ip/cidr>",
+      validate: (arg) => {
+        const r = parseInput(arg);
+        return "error" in r ? r.error : null;
+      },
+    },
+    run: (arg) => nav.openSubnet(arg!),
+  });
+  const profileByName = (name: string) => config().ipProfiles.find((p) => p.name.toLowerCase() === name.trim().toLowerCase());
+  registerCommand({
+    id: "tool.profile",
+    title: "profil <Name>",
+    category: "TOOL",
+    keywords: "ip-profil anwenden statisch dhcp netsh",
+    hint: "[ADMIN] [!]",
+    param: {
+      keyword: "profil",
+      placeholder: "<Name>",
+      validate: (name) => (profileByName(name) ? null : `Kein IP-Profil „${name.trim()}“ (Werkzeuge → IP-Profile).`),
+      suggest: () => config().ipProfiles.map((p) => p.name),
+    },
+    // Läuft durch dieselbe Funktion wie [ Anwenden ]: Admin-Prüfung, Vorschau, Bestätigung, Countdown
+    run: (name) => nav.applyProfile(profileByName(name!)!.name),
+  });
 
   return {
     el,

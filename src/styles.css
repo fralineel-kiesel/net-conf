@@ -1071,3 +1071,82 @@ p {
 .sb-update {
   flex: none;
 }
+
+/* Befehlspalette (Strg+K): Panel oben mittig, Trefferliste darunter */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--backdrop);
+}
+.palette {
+  position: absolute;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(84ch, calc(100vw - 4ch));
+  margin-top: 0;
+  padding: calc(14rem / 13) 2ch calc(8rem / 13);
+  background: var(--bg);
+  border-color: var(--text);
+}
+.palette-line {
+  display: flex;
+  white-space: pre;
+  margin-bottom: calc(8rem / 13);
+}
+.palette-input {
+  flex: 1;
+  width: auto;
+}
+.palette-list {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(var(--lh) * 12);
+  overflow-y: auto;
+}
+.pal-item {
+  display: grid;
+  grid-template-columns: 14ch minmax(0, 1fr) auto;
+  column-gap: 1ch;
+  padding: 0 1ch;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pal-cat {
+  color: var(--dim);
+  white-space: pre;
+}
+.pal-label {
+  color: var(--bright);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pal-hint {
+  color: var(--dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 40ch;
+}
+.pal-item.selected,
+.pal-item.selected .pal-cat,
+.pal-item.selected .pal-label,
+.pal-item.selected .pal-hint {
+  background: var(--accent);
+  color: var(--bg);
+}
+.palette-msg {
+  margin-top: calc(8rem / 13);
+  overflow-wrap: anywhere;
+}
+.palette-empty {
+  padding: 0 1ch;
+}
+.pal-hint.tag-err {
+  color: var(--err);
+}

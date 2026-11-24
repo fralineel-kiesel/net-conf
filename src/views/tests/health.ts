@@ -2,6 +2,8 @@
 import { backend } from "../../api";
 import { logToConsole } from "../../commands";
 import { reportLines, runHealthCheck, statusLabel, summary, type Evaluation, type StageStatus } from "../../health";
+import { nav } from "../../nav";
+import { registerCommand } from "../../registry";
 import { refreshAll } from "../../state";
 import { copyText, h, replaceChildren } from "../../ui/dom";
 import { status } from "../../ui/statusbar";
@@ -102,6 +104,17 @@ export function createHealth(): HTMLElement {
   }
 
   checkBtn.addEventListener("click", () => void run());
+  registerCommand({
+    id: "test.health",
+    title: "Health-Check starten",
+    category: "TEST",
+    keywords: "diagnose internet kaputt prüfen",
+    run: () => {
+      nav.show("tests");
+      nav.showTestsTab("health");
+      void run();
+    },
+  });
   copyBtn.addEventListener("click", async () => {
     if (!last) return;
     if (await copyText(reportLines(last, lastWhen).join("\r\n"))) status("kopiert: Health-Check-Ergebnis", "ok");

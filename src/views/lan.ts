@@ -8,7 +8,8 @@ import { backend, errorText } from "../api";
 import { logToConsole } from "../commands";
 import { config, onConfigChange, updateConfig } from "../config";
 import { events } from "../events";
-import { pingHost } from "../nav";
+import { nav, pingHost } from "../nav";
+import { registerCommand, registerCommands } from "../registry";
 import { compareIp, hostCount, ipv4Gateway, isIpv4, isRandomMac, maskToPrefix, networkOf, normalizeMac, scanBlockReason } from "../netutil";
 import { onStateChange, primaryAdapter, state } from "../state";
 import type { LanHost, WolDevice } from "../types";
@@ -567,6 +568,45 @@ export function createLan(): LanView {
     { value: "wol", label: "Wake-on-LAN" },
   ];
   const tabBar = tabs(TABS, tab, show);
+  registerCommands(
+    TABS.map((t) => ({
+      id: `tab.lan.${t.value}`,
+      title: `LAN: ${t.label}`,
+      category: "SEITE" as const,
+      hint: "F6",
+      run: () => {
+        nav.show("lan");
+        show(t.value);
+      },
+    })),
+  );
+  // Befehlspalette: "wol <Gerätename>" – gleiche Logik wie der Button in der Liste
+  const deviceByName = (name: string) => config().wolDevices.find((d) => d.name.toLowerCase() === name.trim().toLowerCase());
+  nav.wake = (name: string) => {
+    const d = deviceByName(name);
+    if (!d) return status(`WoL-Gerät „${name}“ nicht gefunden.`, "error");
+    nav.show("lan");
+    show("wol");
+    void wakeDevice(d);
+  };
+  registerCommand({
+    id: "tool.wol",
+    title: "wol <Gerätename>",
+    category: "TOOL",
+    keywords: "wake on lan aufwecken magic packet",
+    param: {
+      keyword: "wol",
+      placeholder: "<Gerätename>",
+      validate: (name) =>
+        deviceByName(name)
+          ? null
+          : config().wolDevices.length
+            ? `Kein WoL-Gerät „${name.trim()}“ (vorhanden: ${config().wolDevices.map((d) => d.name).join(", ")})`
+            : "Noch keine WoL-Geräte gespeichert (LAN → Wake-on-LAN).",
+      suggest: () => config().wolDevices.map((d) => d.name),
+    },
+    run: (name) => nav.wake(name!),
+  });
 
   const el = h(
     "section",
