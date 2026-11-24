@@ -10,6 +10,10 @@ export default defineConfig({
     watch: { ignored: ["**/src-tauri/**"] },
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],
+  define: {
+    // Version aus package.json (npm setzt diese Variable bei "npm run …").
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? "dev"),
+  },
   build: {
     // WebView2 auf Windows 11 ist Chromium-basiert und aktuell.
     target: "chrome110",
