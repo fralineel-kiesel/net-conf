@@ -2,7 +2,7 @@
 import { prefs } from "./ui/dom";
 import { validateTarget } from "./validate";
 
-export type ViewId = "overview" | "actions" | "tests" | "tables" | "settings";
+export type ViewId = "overview" | "actions" | "tests" | "tables" | "lan" | "settings";
 
 export interface Settings {
   accent: string;

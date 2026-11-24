@@ -877,3 +877,35 @@ p {
 .sb-msg {
   padding-left: 2ch;
 }
+
+/* Buttons am Ende einer Tabellenzeile: nie umbrechen */
+.row-actions {
+  display: inline-flex;
+  gap: 1ch;
+  white-space: nowrap;
+}
+/* Zelle mit ... statt Umbruch mitten im Wort */
+.clip {
+  display: flex;
+  min-width: 0;
+  white-space: pre;
+}
+.clip > * {
+  flex: none;
+}
+.clip > .value {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Zelle mit zwei Zeilen (z. B. MAC und darunter IP) */
+.cell-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.trow + .trow:has(.cell-lines) {
+  margin-top: 4px;
+}

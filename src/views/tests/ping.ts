@@ -9,6 +9,7 @@ import { h, replaceChildren } from "../../ui/dom";
 import { createLatencyGraph } from "../../ui/latencygraph";
 import { status } from "../../ui/statusbar";
 import { choice, kvRow, panel, prompt, tag, tbutton } from "../../ui/widgets";
+import { nav } from "../../nav";
 import { onSettingsChange, settings } from "../../settings";
 import { PING_COUNTS } from "../../types";
 import { validateTarget } from "../../validate";
@@ -228,6 +229,9 @@ export function createPing(): HTMLElement {
     lastDefault = settings.pingTarget;
     renderGraph(); // Akzentfarbe könnte sich geändert haben
   });
+
+  // Andere Ansichten (LAN-Scanner) können hierher springen und ein Ziel anpingen
+  nav.startPing = (target) => void quickPing(target);
 
   onStateChange(renderQuick);
   renderQuick();
