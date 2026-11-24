@@ -1,6 +1,6 @@
 [package]
 name = "net-conf"
-version = "0.3.0"
+version = "0.4.0"
 description = "Net-Conf – Netzwerk-Helfer für Windows 11"
 authors = ["Net-Conf"]
 edition = "2021"
