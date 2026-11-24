@@ -8,17 +8,24 @@ und bietet Buttons für häufige Netzwerk-Befehle:
 - **Übersicht** – Schnellüberblick (Hostname, primärer Adapter mit IP, Gateway, DNS) und ein Panel pro Adapter (IPv4/IPv6, Gateway, DNS, DHCP, Lease, MAC …), beim WLAN-Adapter zusätzlich SSID, Signal, Kanal/Band und Sicherheit. Öffentliche IP auf Knopfdruck. Klick auf einen Wert kopiert ihn.
 - **Aktionen** – in Gruppen: IP/DHCP (freigeben, erneuern, **Release + Renew**, Voller Refresh), DNS (Cache leeren/anzeigen, neu registrieren), ARP- und NetBIOS-Cache, Adapter neu starten, Winsock/TCP-IP zurücksetzen. Abläufe zeigen ihre Schritte und lassen sich abbrechen.
 - **Tests** – Ping (2–32 Pakete oder unbegrenzt) mit Live-Statistik und Latenz-Graph, Traceroute mit Hop-Tabelle, DNS-Abfrage (wie nslookup) und Port-Test.
+  - **Health** – prüft auf Knopfdruck die ganze Kette (Adapter → IP → Gateway → DNS-Server → DNS-Auflösung → Internet) und sagt auf Deutsch, wo sie bricht. Ergebnis lässt sich als Text kopieren.
+  - **Monitor** – bis zu 20 Ziele dauerhaft anpingen (1–10 s), mit Status UP/DOWN, Verlust, Mini-Verlauf und Ausfall-Log. Läuft im Hintergrund weiter, auch wenn man die Seite wechselt.
 - **Tabellen** – ARP-Tabelle und Routing-Tabelle mit Filter.
+- **LAN** – Scanner für das eigene Subnetz (IP, Hostname, MAC, Latenz) und **Wake-on-LAN** mit Geräteliste. Gescannt werden nur eigene private Netze bis /22.
 - **Einstellungen** – Akzentfarbe, Standard-Ping-Ziel, Konsolen-Höhe, Start-Ansicht.
 - **Konsole** – die Rohausgabe aller Befehle live mitlesen.
 
-Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 = nächster Reiter) · **F4** Tabellen · **F10** Einstellungen · **F5** Neu laden.
+Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 = nächster Reiter) · **F4** Tabellen · **F6** LAN (nochmal F6 = nächster Reiter) · **F10** Einstellungen · **F5** Neu laden.
 
 ### Hinweise
 
 - **WLAN-Details unter Windows 11:** Seit Version 24H2 gibt Windows SSID und Access-Point-Infos nur frei, wenn Desktop-Apps den Standort verwenden dürfen: *Einstellungen → Datenschutz und Sicherheit → Standort → „Desktop-Apps den Zugriff auf Ihren Standort erlauben“*. Ohne das zeigt Net-Conf einen Hinweis statt der Daten.
 - **Öffentliche IP:** wird nur auf Klick über den Dienst [ipify.org](https://www.ipify.org) abgefragt, nie automatisch.
 - **DNS-Abfrage:** fragt den gewählten DNS-Server direkt (wie `nslookup`), nicht den Windows-DNS-Cache.
+- **Pings ohne Adminrechte:** Health-Check, Monitor, LAN-Scan und WoL-Check pingen direkt über die Windows-API (kein `ping.exe`, nur IPv4).
+- **LAN-Scanner:** Nur im eigenen bzw. erlaubten Netz verwenden. Es gibt bewusst kein Feld für beliebige IP-Bereiche.
+- **Wake-on-LAN:** Das Zielgerät muss WoL aktiviert haben (BIOS/UEFI und Netzwerkkarte). „Gesendet“ heisst nicht „aufgewacht“.
+- **Gespeicherte Daten:** Monitor-Ziele und WoL-Geräte liegen in `%APPDATA%\Net-Conf\config.json`. Ist die Datei beschädigt, legt Net-Conf eine Sicherung `config.json.bak` an und startet mit Standardwerten.
 
 Gebaut mit [Tauri v2](https://tauri.app) (Rust) und reinem TypeScript – klein, schnell, ohne Installation lauffähig.
 
@@ -56,7 +63,7 @@ Ergebnis:
 - `src-tauri/target/release/net-conf.exe` (portabel)
 - `src-tauri/target/release/bundle/nsis/*-setup.exe` (Installer)
 
-**Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte; mit `?fail=renew` scheitert jeder Aktions-Schritt mit „renew“ (zum Testen der Fehlermeldungen).
+**Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte; mit `?fail=renew` scheitert jeder Aktions-Schritt mit „renew“ (zum Testen der Fehlermeldungen); mit `?net=dnsfail` (oder `offline`, `apipa`, `nogateway`, `noicmp`) zeigt der Health-Check typische Fehlerfälle.
 
 **ASCII-Titel neu erzeugen** (nur nötig, wenn er sich ändern soll): `pip install pyfiglet`, dann `python scripts/make-title.py`.
 
