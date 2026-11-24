@@ -4,6 +4,7 @@
 //   tbutton()   [ Text ]  – Hover/Fokus invertiert die Farben
 //   checkbox()  [x] Text / [ ] Text
 //   radio()     (*) Text / ( ) Text
+//   choice()    [2] [4] [8] – Auswahl als Reihe, die gewählte Option invertiert
 //   kvRow()     Label . . . . : Wert   (Punkte-Füller wie bei ipconfig)
 //   prompt()    $ befehl █   (Überschrift mit blinkendem Block-Cursor)
 import { copyText, h, type Child } from "./dom";
@@ -75,6 +76,33 @@ export function radio<T extends string>(
   select(value);
   group.append(...buttons.map((x) => x.b));
   return group;
+}
+
+/** Auswahl als Reihe von Text-Buttons "[2] [4] [8]" – die gewählte Option
+ *  ist invertiert (Akzent-Hintergrund), wie eine Markierung im Terminal. */
+export function choice<T extends string | number>(
+  options: { value: T; label: string; title?: string }[],
+  value: T,
+  onchange: (v: T) => void,
+): { el: HTMLElement; set(v: T): void } {
+  const el = h("span", { class: "tchoices", role: "radiogroup" });
+  const buttons = options.map((o) => {
+    const b = h("button", { class: "tchoice", type: "button", role: "radio", title: o.title }, o.label);
+    b.addEventListener("click", () => {
+      set(o.value);
+      onchange(o.value);
+    });
+    return { b, value: o.value };
+  });
+  const set = (v: T) => {
+    for (const x of buttons) {
+      x.b.classList.toggle("selected", x.value === v);
+      x.b.setAttribute("aria-checked", String(x.value === v));
+    }
+  };
+  set(value);
+  el.append(...buttons.map((x) => x.b));
+  return { el, set };
 }
 
 /** Ausgerichtete Zeile "Label . . . . : Wert". Mehrere Werte stehen untereinander. */

@@ -686,15 +686,58 @@ p {
   color: var(--bg);
 }
 
-/* ---------- Ping-Graph aus Blockzeichen ------------------------------------ */
+/* ---------- Ping: Anzahl-Auswahl und Latenz-Graph ------------------------- */
 
-.graph {
-  color: var(--accent);
+/* [2] [4] [8] [16] [32] [∞] – gewählte Option invertiert */
+.tchoices {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 1ch;
 }
-.graph-row {
+.tchoice {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
   white-space: pre;
-  /* Zeilen dicht aneinander, damit die Blöcke eine Fläche bilden */
-  line-height: 1;
+  cursor: pointer;
+}
+.tchoice::before {
+  content: "[";
+}
+.tchoice::after {
+  content: "]";
+}
+.tchoice.selected,
+.tchoice:hover,
+.tchoice:focus-visible {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* Graph: Canvas (3 Textzeilen hoch) + Skala rechts daneben */
+.lgraph {
+  position: relative;
+  display: flex;
+  gap: 2ch;
+  align-self: stretch; /* volle Breite in der Werte-Spalte von kvRow */
+  min-width: 0;
+}
+.lgraph-canvas {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  height: calc(var(--lh) * 3);
+}
+.lgraph-axis {
+  flex: none;
+  white-space: pre;
+  color: var(--text);
+}
+.lgraph-probe {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
 }
 
 /* ---------- Konsole -------------------------------------------------------- */

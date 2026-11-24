@@ -1,18 +1,21 @@
-// Tests → Ping: Live-Statistik und Latenz-Graph aus Blockzeichen.
+// Tests → Ping: Live-Statistik und ruhiger Latenz-Graph (fester Nullpunkt, Skala mit Hysterese).
 import { errorText } from "../../api";
 import { startCommand, type RunHandle } from "../../commands";
 import { explainFailure } from "../../messages";
 import { PingStats } from "../../ping";
+import { LatencyScale } from "../../pingscale";
 import { onStateChange, primaryAdapter } from "../../state";
-import { blockGraph } from "../../ui/blockgraph";
 import { h, replaceChildren } from "../../ui/dom";
+import { createLatencyGraph } from "../../ui/latencygraph";
 import { status } from "../../ui/statusbar";
-import { kvRow, panel, prompt, radio, tag, tbutton } from "../../ui/widgets";
+import { choice, kvRow, panel, prompt, tag, tbutton } from "../../ui/widgets";
 import { onSettingsChange, settings } from "../../settings";
+import { PING_COUNTS } from "../../types";
 import { validateTarget } from "../../validate";
 
-const GRAPH_POINTS = 60; // so viele Messwerte zeigt der Graph
-const GRAPH_ROWS = 4; // Höhe in Textzeilen
+/** "inf" = unbegrenzt (ping -t, bis Stop) */
+type Count = (typeof PING_COUNTS)[number] | "inf";
+const DEFAULT_COUNT: Count = 4;
 
 export function createPing(): HTMLElement {
   const heading = prompt(`ping -n 4 ${settings.pingTarget}`);
@@ -27,16 +30,17 @@ export function createPing(): HTMLElement {
     "aria-label": "Ziel",
   });
 
-  // Anzahl: 4 Pakete oder unbegrenzt (ping -t)
-  let unlimited = false;
-  const countRadio = radio(
+  // Anzahl: 2 … 32 Pakete (ping -n) oder unbegrenzt (ping -t). Das Backend
+  // prüft die Zahl noch einmal gegen dieselbe Liste.
+  let count: Count = DEFAULT_COUNT;
+  const countChoice = choice<Count>(
     [
-      { value: "4", label: "4 Pakete" },
-      { value: "inf", label: "bis Stop", title: "Läuft, bis du Stop drückst (ping -t)" },
+      ...PING_COUNTS.map((n) => ({ value: n as Count, label: String(n), title: `${n} Pakete (ping -n ${n})` })),
+      { value: "inf", label: "∞", title: "Unbegrenzt, bis du Stop drückst (ping -t)" },
     ],
-    "4",
+    count,
     (v) => {
-      unlimited = v === "inf";
+      count = v;
       updateHeading();
     },
   );
@@ -48,13 +52,14 @@ export function createPing(): HTMLElement {
   const packets = h("span", { class: "plain" }, "–");
   const latency = h("span", { class: "plain" }, "–");
   const statusLine = h("span", { class: "dim" }, "bereit");
-  const graph = h("div", { class: "graph", "aria-label": "Latenzverlauf" });
+  const graph = createLatencyGraph();
+  const scale = new LatencyScale();
 
   const pingPanel = panel(
     "PING",
     {},
     kvRow("Ziel", h("span", { class: "input-wrap" }, h("span", { class: "dim" }, "> "), input)),
-    kvRow("Anzahl", countRadio),
+    kvRow("Anzahl", countChoice.el),
     kvRow("Schnellwahl", quick),
     h("div", { class: "panel-actions" }, startBtn),
   );
@@ -64,7 +69,7 @@ export function createPing(): HTMLElement {
     kvRow("Pakete", packets),
     kvRow("Latenz", latency),
     kvRow("Status", statusLine),
-    kvRow(`Verlauf (${GRAPH_POINTS})`, graph),
+    kvRow("Verlauf", graph.el),
   );
 
   const view = h("div", { class: "subview" }, heading.el, h("div", { class: "stack" }, pingPanel.el, statsPanel.el));
@@ -76,7 +81,7 @@ export function createPing(): HTMLElement {
 
   function updateHeading(): void {
     const target = input.value.trim() || "<ziel>";
-    heading.set(`ping ${unlimited ? "-t" : "-n 4"} ${target}`);
+    heading.set(`ping ${count === "inf" ? "-t" : `-n ${count}`} ${target}`);
   }
 
   const setStatus = (text: string, kind: "plain" | "ok" | "err" | "dim" = "plain") => {
@@ -105,38 +110,8 @@ export function createPing(): HTMLElement {
     renderGraph();
   };
 
-  const renderGraph = () => {
-    const data = stats.history.slice(-GRAPH_POINTS);
-    if (data.length === 0) {
-      replaceChildren(graph, h("span", { class: "dim" }, "–"));
-      return;
-    }
-    const cells = blockGraph(data, GRAPH_ROWS);
-    const valid = data.filter((v): v is number => v !== null);
-    // Achsenbeschriftung rechts: oben max, unten min
-    const labels = valid.length ? [`${Math.max(...valid)} ms`, ...Array(GRAPH_ROWS - 2).fill(""), `${Math.min(...valid)} ms`] : [];
-    const lines = cells.map((row, i) => {
-      const line = h("div", { class: "graph-row" });
-      // Aufeinanderfolgende Zeichen gleicher Art zu einem Textstück zusammenfassen
-      let buf = "";
-      let lostRun = false;
-      const flush = () => {
-        if (buf) line.append(lostRun ? tag(buf, "err") : buf);
-        buf = "";
-      };
-      for (const c of row) {
-        if (c.lost !== lostRun) {
-          flush();
-          lostRun = c.lost;
-        }
-        buf += c.ch;
-      }
-      flush();
-      line.append(h("span", { class: "dim" }, " ".repeat(GRAPH_POINTS - row.length + 1) + (labels[i] ?? "")));
-      return line;
-    });
-    replaceChildren(graph, ...lines);
-  };
+  // Statistik bleibt exakt (ungeglättet); nur die Skala des Graphen ist "ruhig".
+  const renderGraph = () => graph.render(stats.history, scale.max);
 
   // Schnellwahl: Gateway/DNS aus den Adapterdaten, plus feste Ziele.
   const renderQuick = () => {
@@ -174,14 +149,19 @@ export function createPing(): HTMLElement {
     }
 
     stats = new PingStats();
+    scale.reset();
     renderStats();
     setStatus(`läuft auf ${target} …`, "ok");
     status(`ping ${target} läuft …`);
-    const command = { kind: "ping" as const, target, count: unlimited ? null : 4 };
+    const command = { kind: "ping" as const, target, count: count === "inf" ? null : count };
 
     try {
       handle = await startCommand(command, (line) => {
-        if (stats.feed(line)) renderStats();
+        if (stats.feed(line)) {
+          // Skala nach jeder Messung anpassen – mit den Werten, die gerade sichtbar sind
+          scale.update(stats.history.slice(-graph.capacity()));
+          renderStats();
+        }
       });
     } catch (err) {
       const msg = errorText(err);
@@ -246,6 +226,7 @@ export function createPing(): HTMLElement {
       updateHeading();
     }
     lastDefault = settings.pingTarget;
+    renderGraph(); // Akzentfarbe könnte sich geändert haben
   });
 
   onStateChange(renderQuick);
