@@ -288,6 +288,9 @@ p {
 .adapter > .panel-title {
   max-width: calc(100% - 25ch);
 }
+.adapter.primary > .panel-title {
+  max-width: calc(100% - 34ch); /* zusätzlich [PRIMÄR] */
+}
 .panel-right {
   right: 1ch;
 }
@@ -497,22 +500,103 @@ p {
   color: var(--bright);
 }
 
+/* ---------- Übersicht: ASCII-Titel und Schnellüberblick ------------------ */
+
+/* Die Übersicht ist ein Container: Titel und oberes Raster reagieren auf
+   die Breite des Hauptbereichs, nicht auf die Fensterbreite. */
+.overview {
+  container: overview / inline-size;
+}
+.title-block {
+  margin-bottom: 12px;
+}
+.title-block > p {
+  margin-top: 4px;
+}
+.ascii-title {
+  margin: 0;
+  font: inherit; /* <pre> würde sonst eine eigene Schrift(grösse) nehmen */
+  line-height: 1.15; /* etwas dichter, damit die Buchstaben zusammenhängen */
+  color: var(--bright);
+  white-space: pre; /* nie umbrechen – sonst zerfällt die ASCII-Art */
+  overflow: hidden;
+}
+.title-compact {
+  display: none;
+}
+/* Zu schmal für die 50 Zeichen breite ASCII-Art → einzeilige Variante */
+@container overview (max-width: 56ch) {
+  .ascii-title {
+    display: none;
+  }
+  .title-compact {
+    display: block;
+  }
+}
+/* SYSTEM (breiter) und ÖFFENTLICHE IP nebeneinander, schmal untereinander */
+.top-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px 2ch;
+  margin-bottom: 20px;
+}
+@container overview (max-width: 84ch) {
+  .top-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Kurze Labels ("IPv4") – schmalere Label-Spalte */
+.kv-compact .kv-row {
+  grid-template-columns: 7ch 3ch minmax(0, 1fr);
+}
+
 /* ---------- Aktionen ------------------------------------------------------- */
 
 .note {
   margin: 8px 0 4px;
 }
+/* Tabellenzeilen: [ Button ] | Status/Tags | Befehl/Ablauf | Beschreibung.
+   --btn-w setzt actions.ts (längster Titel), damit alle Spalten untereinander stehen. */
 .action-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 8px;
+  container-type: inline-size;
 }
 .action-row {
   display: grid;
-  grid-template-columns: max-content 15ch minmax(0, 1fr);
-  column-gap: 1ch;
+  grid-template-columns: var(--btn-w, 28ch) 13ch minmax(0, 1fr);
+  column-gap: 2ch;
   align-items: start;
+}
+.action-row > .tbtn {
+  text-align: left;
+}
+.action-flags {
+  white-space: pre;
+}
+.action-cmd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.seq-step {
+  white-space: nowrap;
+}
+.action-hint {
+  margin-bottom: 8px;
+}
+/* Normal: Beschreibung steht unter dem Befehl (gleiche Spalte).
+   Breites Fenster: Beschreibung als eigene vierte Spalte. */
+.action-desc {
+  grid-column: 3;
+}
+@container (min-width: 128ch) {
+  .action-row {
+    grid-template-columns: var(--btn-w, 28ch) 13ch 36ch minmax(0, 1fr);
+  }
+  .action-desc {
+    grid-column: 4;
+  }
 }
 .quick {
   display: inline-flex;
@@ -584,9 +668,6 @@ p {
 .tinput-short {
   width: 28ch;
 }
-.public-ip {
-  margin-bottom: 12px;
-}
 
 /* Farbvorschau bei den Akzentfarben: Beschriftung in der jeweiligen Farbe */
 .tcheck.swatch,
@@ -605,15 +686,58 @@ p {
   color: var(--bg);
 }
 
-/* ---------- Ping-Graph aus Blockzeichen ------------------------------------ */
+/* ---------- Ping: Anzahl-Auswahl und Latenz-Graph ------------------------- */
 
-.graph {
-  color: var(--accent);
+/* [2] [4] [8] [16] [32] [∞] – gewählte Option invertiert */
+.tchoices {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 1ch;
 }
-.graph-row {
+.tchoice {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
   white-space: pre;
-  /* Zeilen dicht aneinander, damit die Blöcke eine Fläche bilden */
-  line-height: 1;
+  cursor: pointer;
+}
+.tchoice::before {
+  content: "[";
+}
+.tchoice::after {
+  content: "]";
+}
+.tchoice.selected,
+.tchoice:hover,
+.tchoice:focus-visible {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* Graph: Canvas (3 Textzeilen hoch) + Skala rechts daneben */
+.lgraph {
+  position: relative;
+  display: flex;
+  gap: 2ch;
+  align-self: stretch; /* volle Breite in der Werte-Spalte von kvRow */
+  min-width: 0;
+}
+.lgraph-canvas {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  height: calc(var(--lh) * 3);
+}
+.lgraph-axis {
+  flex: none;
+  white-space: pre;
+  color: var(--text);
+}
+.lgraph-probe {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
 }
 
 /* ---------- Konsole -------------------------------------------------------- */
@@ -639,7 +763,8 @@ p {
 .console.collapsed .console-body {
   display: none;
 }
-.line-cmd {
+.line-cmd,
+.line-step {
   color: var(--bright);
 }
 .line-cmd:not(:first-child) {

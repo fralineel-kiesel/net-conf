@@ -1,8 +1,8 @@
-// Komfort-Funktion zum Starten eines Befehls: vergibt die runId,
-// sammelt die Ausgabe und liefert ein Promise, das beim Ende erfüllt wird.
+// Komfort-Funktionen zum Starten von Befehlen und Aktionen: vergeben die
+// runId, sammeln die Ausgabe und liefern ein Promise, das beim Ende erfüllt wird.
 import { backend } from "./api";
 import { events } from "./events";
-import type { NetCommand } from "./types";
+import type { ActionId, NetCommand, StepEvent } from "./types";
 
 // Startwert zufällig-ish, damit nach einem Neuladen der Seite keine runId
 // doppelt vergeben wird, solange ein alter Prozess noch läuft.
@@ -12,6 +12,10 @@ export interface RunResult {
   exitCode: number | null;
   cancelled: boolean;
   lines: string[];
+  /** 1-basiert: erster gescheiterter Schritt (null = keiner) */
+  failedStep: number | null;
+  /** Prozess liess sich nicht starten */
+  error: string | null;
 }
 
 export interface RunHandle {
@@ -20,10 +24,13 @@ export interface RunHandle {
   cancel(): Promise<void>;
 }
 
-export async function startCommand(
-  command: NetCommand,
-  onLine?: (line: string, stream: "stdout" | "stderr") => void,
-): Promise<RunHandle> {
+export interface RunCallbacks {
+  onLine?: (line: string, stream: "stdout" | "stderr") => void;
+  onStep?: (step: StepEvent) => void;
+}
+
+/** Gemeinsamer Ablauf: Listener anmelden, dann im Backend starten. */
+async function startRun(start: (runId: number) => Promise<void>, cb: RunCallbacks): Promise<RunHandle> {
   nextId = (nextId + 1) % 0xffff_ffff; // passt in u32
   const runId = nextId;
   const lines: string[] = [];
@@ -34,23 +41,42 @@ export async function startCommand(
   const offOutput = events.output.on((e) => {
     if (e.runId !== runId) return;
     lines.push(e.line);
-    onLine?.(e.line, e.stream);
+    cb.onLine?.(e.line, e.stream);
   });
+  const offStep = events.step.on((e) => {
+    if (e.runId === runId) cb.onStep?.(e);
+  });
+  const off = () => {
+    offOutput();
+    offStep();
+    offFinished();
+  };
   const offFinished = events.finished.on((e) => {
     if (e.runId !== runId) return;
-    offOutput();
-    offFinished();
-    resolve({ exitCode: e.exitCode, cancelled: e.cancelled, lines });
+    off();
+    resolve({ exitCode: e.exitCode, cancelled: e.cancelled, lines, failedStep: e.failedStep, error: e.error });
   });
 
   try {
-    await backend.runCommand(runId, command);
+    await start(runId);
   } catch (err) {
-    offOutput();
-    offFinished();
+    off();
     throw err;
   }
   return { runId, done, cancel: () => backend.cancelCommand(runId) };
+}
+
+/** Ping oder Traceroute starten. */
+export function startCommand(
+  command: NetCommand,
+  onLine?: (line: string, stream: "stdout" | "stderr") => void,
+): Promise<RunHandle> {
+  return startRun((runId) => backend.runCommand(runId, command), { onLine });
+}
+
+/** Aktion aus der Whitelist starten (nur die ID geht ans Backend). */
+export function startAction(action: ActionId, adapter: string | null, cb: RunCallbacks = {}): Promise<RunHandle> {
+  return startRun((runId) => backend.runAction(runId, action, adapter), cb);
 }
 
 // Für Werkzeuge ohne eigenen Prozess (DNS, Port-Test, Tabellen): Ergebnis
@@ -61,5 +87,5 @@ export function logToConsole(commandLine: string, lines: string[], exitCode = 0)
   const runId = logId++;
   events.started.emit({ runId, commandLine });
   for (const line of lines) events.output.emit({ runId, stream: "stdout", line });
-  events.finished.emit({ runId, exitCode, cancelled: false });
+  events.finished.emit({ runId, exitCode, cancelled: false, failedStep: null, error: null });
 }

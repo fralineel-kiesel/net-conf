@@ -1,10 +1,15 @@
-// Ansicht "Übersicht": ein Panel pro Netzwerkadapter, Zeilen wie bei ipconfig /all.
+// Ansicht "Übersicht": ASCII-Titel, Schnellüberblick (SYSTEM), öffentliche IP
+// und ein Panel pro Netzwerkadapter mit Zeilen wie bei ipconfig /all.
+import titleArt from "../../assets/title.txt?raw";
 import { backend, errorText } from "../api";
-import { onStateChange, setState, state, wifiFor } from "../state";
+import { onStateChange, primaryAdapter, setState, sortedAdapters, state, wifiFor } from "../state";
 import type { AdapterInfo, WifiInfo } from "../types";
 import { formatUnix, h, prefs, replaceChildren } from "../ui/dom";
 import { status } from "../ui/statusbar";
 import { bar, checkbox, copyable, kvRow, panel, prompt, tag, tbutton } from "../ui/widgets";
+
+/** Der ASCII-Titel genau wie in assets/title.txt (ein evtl. \r von Windows-Git weg). */
+export const TITLE_ART = titleArt.replace(/\r/g, "").replace(/\n+$/, "");
 
 export function createOverview(): HTMLElement {
   const grid = h("div", { class: "panel-grid" });
@@ -13,16 +18,30 @@ export function createOverview(): HTMLElement {
     setState({ hideDisconnected: v });
   });
 
+  // Titel: textContent (nicht innerHTML) – so bleiben \ / _ | exakt erhalten.
+  const art = h("pre", { class: "ascii-title", "aria-label": "NET-CONF" });
+  art.textContent = TITLE_ART;
+  const system = systemPanel();
+
   const view = h(
     "section",
-    { class: "view", "data-view": "overview" },
-    prompt("ipconfig /all").el,
+    { class: "view overview", "data-view": "overview" },
+    h(
+      "header",
+      { class: "title-block" },
+      art,
+      // Ersatz für schmale Fenster (umschalten per CSS-Container-Query)
+      h("div", { class: "title-compact bright" }, "[ NET-CONF ]"),
+      h("p", { class: "dim" }, `Netzwerk-Werkzeug für Windows 11 · v${__APP_VERSION__}`),
+    ),
+    h("div", { class: "top-grid" }, system.el, publicIpPanel()),
+    h("div", { class: "section-head" }, prompt("ipconfig /all").el),
     h("div", { class: "toolbar" }, hideBox, h("span", { class: "dim" }, "Klick auf einen Wert kopiert ihn.")),
-    publicIpPanel(),
     grid,
   );
 
   const render = () => {
+    system.render();
     if (state.loading && state.adapters.length === 0) {
       replaceChildren(grid, h("p", { class: "dim" }, "lade Adapter …"));
       return;
@@ -31,7 +50,7 @@ export function createOverview(): HTMLElement {
       replaceChildren(grid, h("p", { class: "tag-err" }, "Die Adapter konnten nicht gelesen werden: ", state.error));
       return;
     }
-    const visible = state.adapters.filter((a) => !state.hideDisconnected || a.connected);
+    const visible = sortedAdapters(state.adapters).filter((a) => !state.hideDisconnected || a.connected);
     if (visible.length === 0) {
       replaceChildren(
         grid,
@@ -39,12 +58,64 @@ export function createOverview(): HTMLElement {
       );
       return;
     }
-    replaceChildren(grid, ...visible.map(adapterPanel));
+    const primary = primaryAdapter();
+    replaceChildren(grid, ...visible.map((a) => adapterPanel(a, a.id === primary?.id)));
   };
 
   onStateChange(render);
   render();
   return view;
+}
+
+/** Subnetzmaske → Präfixlänge, z. B. 255.255.255.0 → 24 */
+function maskToPrefix(mask: string): number | null {
+  const parts = mask.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((p) => !(p >= 0 && p <= 255))) return null;
+  return parts.reduce((n, p) => n + p.toString(2).split("").filter((b) => b === "1").length, 0);
+}
+
+/** Schnellüberblick: Hostname, DNS-Suffix und der primäre Adapter (mit Gateway). */
+function systemPanel(): { el: HTMLElement; render(): void } {
+  const p = panel("SYSTEM", {});
+  const render = () => {
+    const a = primaryAdapter();
+    replaceChildren(p.right, a ? tag("[ONLINE]", "ok") : tag("[KEIN GATEWAY]", "err"));
+    const dimDash = () => h("span", { class: "dim" }, "—");
+    const rows: HTMLElement[] = [kvRow("Hostname", state.hostname ? copyable(state.hostname) : dimDash())];
+    if (!a) {
+      rows.push(kvRow("DNS-Suffix", dimDash()));
+      rows.push(
+        kvRow(
+          "Primärer Adapter",
+          h("span", { class: "tag-err wrap" }, state.loading ? "lade …" : "keiner mit Standardgateway – kein Netzwerk?"),
+        ),
+      );
+      replaceChildren(p.body, ...rows);
+      return;
+    }
+    const wifi = wifiFor(a);
+    rows.push(kvRow("DNS-Suffix", a.dnsSuffix ? copyable(a.dnsSuffix) : dimDash()));
+    rows.push(
+      kvRow(
+        "Primärer Adapter",
+        h(
+          "span",
+          {},
+          h("span", { class: "plain" }, a.name),
+          wifi?.connected && wifi.ssid ? h("span", { class: "dim" }, ` (${wifi.ssid})`) : null,
+        ),
+      ),
+    );
+    const v4 = a.ipv4.map((x) => {
+      const prefix = maskToPrefix(x.subnetMask);
+      return h("span", {}, copyable(x.address), prefix !== null ? h("span", { class: "dim" }, ` /${prefix}`) : null);
+    });
+    rows.push(kvRow("IPv4-Adresse", ...(v4.length ? v4 : [dimDash()])));
+    rows.push(kvRow("Standardgateway", ...a.gateways.map((g) => copyable(g))));
+    rows.push(kvRow("DNS-Server", ...(a.dnsServers.length ? a.dnsServers.map((d) => copyable(d)) : [dimDash()])));
+    replaceChildren(p.body, ...rows);
+  };
+  return { el: p.el, render };
 }
 
 /**
@@ -54,13 +125,13 @@ export function createOverview(): HTMLElement {
 function publicIpPanel(): HTMLElement {
   const v4 = h("span", { class: "dim" }, "–");
   const v6 = h("span", { class: "dim" }, "–");
-  const btn = tbutton("Abfragen", { title: "Fragt ipify.org nach der öffentlichen IP" });
+  const btn = tbutton("Abfragen", { title: "Fragt ipify.org nach der öffentlichen IP (nur auf Klick)" });
   const p = panel(
     "ÖFFENTLICHE IP",
-    { cls: "public-ip", right: [btn] },
-    kvRow("IPv4 (öffentlich)", v4),
-    kvRow("IPv6 (öffentlich)", v6),
-    h("p", { class: "dim" }, "Wird erst auf Klick abgefragt (Dienst: ipify.org)."),
+    { cls: "public-ip kv-compact", right: [btn] },
+    kvRow("IPv4", v4),
+    kvRow("IPv6", v6),
+    h("p", { class: "dim" }, "nur auf Klick (ipify.org)"),
   );
   btn.addEventListener("click", async () => {
     btn.textContent = "frage …";
@@ -77,7 +148,7 @@ function publicIpPanel(): HTMLElement {
       v4.className = "tag-err";
       status(msg, "error");
     } finally {
-      btn.textContent = "Erneut abfragen";
+      btn.textContent = "Erneut";
       btn.disabled = false;
     }
   });
@@ -114,7 +185,7 @@ function wifiRows(w: WifiInfo): HTMLElement[] {
   return rows;
 }
 
-function adapterPanel(a: AdapterInfo): HTMLElement {
+function adapterPanel(a: AdapterInfo, primary: boolean): HTMLElement {
   // [Bezeichnung (wie ipconfig), Werte, auch leer anzeigen?]
   const rows: [string, string[], boolean][] = [
     ["Physische Adresse", a.mac ? [a.mac] : [], true],
@@ -131,8 +202,9 @@ function adapterPanel(a: AdapterInfo): HTMLElement {
 
   const wifi = wifiFor(a);
   const p = panel(a.name || "(ohne Namen)", {
-    cls: "adapter",
+    cls: primary ? "adapter primary" : "adapter",
     right: [
+      primary ? tag("[PRIMÄR]", "plain") : null,
       a.connected ? tag("[ONLINE]", "ok") : tag("[OFFLINE]", "dim"),
       wifi ? tag("[WLAN]") : null,
       tag(a.dhcpEnabled ? "[DHCP]" : "[STATISCH]"),

@@ -56,12 +56,30 @@ export async function refreshAll(): Promise<void> {
   }
 }
 
-/** Erster verbundener Adapter mit Gateway – für die Ping-Schnellwahl. */
+const byName = (x: AdapterInfo, y: AdapterInfo) =>
+  x.name.localeCompare(y.name, "de", { sensitivity: "base" }) || x.id.localeCompare(y.id);
+
+/**
+ * Primärer Adapter = verbunden und mit Standardgateway (IPv4 bevorzugt).
+ * Gibt es mehrere, entscheidet der Name – so ist das Ergebnis bei jedem
+ * Neuladen gleich (die echte Routen-Metrik kennt die Adapterliste nicht).
+ */
 export function primaryAdapter(): AdapterInfo | undefined {
+  const connected = state.adapters.filter((a) => a.connected).sort(byName);
   return (
-    state.adapters.find((a) => a.connected && a.gateways.some((g) => g.includes("."))) ??
-    state.adapters.find((a) => a.connected && a.gateways.length > 0)
+    connected.find((a) => a.gateways.some((g) => g.includes("."))) ?? connected.find((a) => a.gateways.length > 0)
   );
+}
+
+/**
+ * Reihenfolge der Adapter-Panels: primärer Adapter zuerst, dann weitere mit
+ * Gateway, dann verbundene ohne Gateway, dann getrennte – jeweils nach Name.
+ * Hängt nicht von der Reihenfolge ab, die Windows liefert → stabil.
+ */
+export function sortedAdapters(list: AdapterInfo[]): AdapterInfo[] {
+  const primary = primaryAdapter();
+  const rank = (a: AdapterInfo) => (a.id === primary?.id ? 0 : a.gateways.length > 0 ? 1 : a.connected ? 2 : 3);
+  return [...list].sort((x, y) => rank(x) - rank(y) || byName(x, y));
 }
 
 /** WLAN-Infos zu einem Adapter (Vergleich der GUID ohne Gross/Klein). */

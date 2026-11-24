@@ -9,6 +9,8 @@ export interface ConfirmOptions {
   cancelText?: string;
   /** Gefährliche Aktion: Fokus liegt dann zuerst auf "Abbrechen". */
   danger?: boolean;
+  /** Reiner Hinweis: nur ein Button (confirmText), kein "Abbrechen". */
+  infoOnly?: boolean;
 }
 
 /** true, solange ein Dialog offen ist (Tastenkürzel werden dann ignoriert). */
@@ -36,7 +38,7 @@ export function confirmDialog(opts: ConfirmOptions): Promise<boolean> {
       opts.title.toUpperCase(),
       { cls: "dialog" },
       h("p", {}, opts.message),
-      h("div", { class: "dialog-actions" }, cancelBtn, okBtn),
+      h("div", { class: "dialog-actions" }, opts.infoOnly ? null : cancelBtn, okBtn),
     );
     box.el.setAttribute("role", "dialog");
     box.el.setAttribute("aria-modal", "true");
@@ -48,6 +50,6 @@ export function confirmDialog(opts: ConfirmOptions): Promise<boolean> {
     });
     document.addEventListener("keydown", onKey, true);
     document.body.append(backdrop);
-    (opts.danger ? cancelBtn : okBtn).focus();
+    (opts.danger && !opts.infoOnly ? cancelBtn : okBtn).focus();
   });
 }

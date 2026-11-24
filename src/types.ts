@@ -23,18 +23,45 @@ export interface AdapterInfo {
   dnsSuffix: string;
 }
 
-/** Whitelist der Befehle – entspricht `NetCommand` in runner.rs. */
+/** Werkzeuge mit freier Eingabe – entspricht `NetCommand` in runner.rs.
+ *  `count: null` = unbegrenzt (ping -t). Erlaubt sind nur PING_COUNTS. */
 export type NetCommand =
-  | { kind: "release"; adapter: string | null }
-  | { kind: "renew"; adapter: string | null }
-  | { kind: "flushDns" }
-  | { kind: "registerDns" }
   | { kind: "ping"; target: string; count: number | null }
   | { kind: "tracert"; target: string; resolve: boolean };
+
+/** Erlaubte Ping-Anzahlen (gleiche Liste wie PING_COUNTS in runner.rs). */
+export const PING_COUNTS = [2, 4, 8, 16, 32] as const;
+
+/** Aktions-IDs – entspricht `ActionId` in actions.rs (Whitelist im Backend). */
+export type ActionId =
+  | "release"
+  | "renew"
+  | "releaseRenew"
+  | "fullRefresh"
+  | "flushDns"
+  | "displayDns"
+  | "registerDns"
+  | "dnsRefresh"
+  | "arpClear"
+  | "nbtPurge"
+  | "nbtReregister"
+  | "adapterRestart"
+  | "winsockReset"
+  | "tcpipReset";
 
 export interface StartedEvent {
   runId: number;
   commandLine: string;
+}
+
+/** Schrittmarker bei Abläufen mit mehreren Schritten, z. B. [1/3] ipconfig /release */
+export interface StepEvent {
+  runId: number;
+  index: number;
+  total: number;
+  label: string;
+  /** true = Schritt läuft nur noch zur Wiederherstellung (nach Fehler/Abbruch) */
+  recovery: boolean;
 }
 
 export interface OutputEvent {
@@ -47,6 +74,10 @@ export interface FinishedEvent {
   runId: number;
   exitCode: number | null;
   cancelled: boolean;
+  /** 1-basiert: welcher Schritt zuerst gescheitert ist (null = keiner) */
+  failedStep: number | null;
+  /** Prozess liess sich nicht starten */
+  error: string | null;
 }
 
 // ---- Phase 2 ---------------------------------------------------------------

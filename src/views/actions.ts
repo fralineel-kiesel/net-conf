@@ -1,116 +1,118 @@
-// Ansicht "Aktionen": ipconfig /release, /renew, /flushdns, /registerdns.
+// Ansicht "Aktionen" (F2): Netzwerk-Befehle und Abläufe, gruppiert in Panels.
+//
+// Jede Aktion ist eine Tabellenzeile in festen Spalten:
+//   [ Button ] | Status/Tags | Befehl bzw. Ablauf | Beschreibung
+// Ausgeführt wird im Backend nur, was zur Aktions-ID gehört (actions.rs).
+import { ACTIONS, GROUPS, type ActionDef, type ActionStep } from "../actions";
 import { errorText } from "../api";
-import { startCommand } from "../commands";
-import { explainFailure } from "../messages";
+import { startAction, type RunHandle } from "../commands";
+import { explainActionFailure } from "../messages";
 import { onStateChange, refreshAll, setState, state } from "../state";
-import type { NetCommand } from "../types";
 import { askRestartAsAdmin } from "../ui/admin";
-import { h } from "../ui/dom";
+import { h, replaceChildren, type Child } from "../ui/dom";
 import { confirmDialog } from "../ui/modal";
 import { status } from "../ui/statusbar";
 import { kvRow, panel, prompt, tag, tbutton } from "../ui/widgets";
 
-interface ActionDef {
-  kind: "release" | "renew" | "flushDns" | "registerDns";
-  title: string;
-  command: string;
-  description: string;
-  needsAdmin: boolean;
-  /** Gilt die Adapter-Auswahl für diese Aktion? */
-  perAdapter: boolean;
-  success: string;
+// Alle Buttons gleich breit (über alle Panels), damit die Spalten exakt
+// untereinander stehen – Text wird mit Leerzeichen aufgefüllt.
+const LABEL_WIDTH = Math.max(...ACTIONS.map((a) => a.title.length), "Abbrechen".length);
+
+interface Row {
+  def: ActionDef;
+  btn: HTMLButtonElement;
+  flags: HTMLElement;
+  cmd: HTMLElement;
 }
 
-const ACTIONS: ActionDef[] = [
-  {
-    kind: "release",
-    title: "IP freigeben",
-    command: "ipconfig /release",
-    description: "Gibt die per DHCP bezogene IPv4-Adresse zurück. Die Verbindung wird getrennt.",
-    needsAdmin: true,
-    perAdapter: true,
-    success: "IP-Adresse freigegeben",
-  },
-  {
-    kind: "renew",
-    title: "IP erneuern",
-    command: "ipconfig /renew",
-    description: "Fordert beim DHCP-Server eine neue IPv4-Adresse an. Kann einige Sekunden dauern.",
-    needsAdmin: true,
-    perAdapter: true,
-    success: "IP-Adresse erneuert",
-  },
-  {
-    kind: "flushDns",
-    title: "DNS-Cache leeren",
-    command: "ipconfig /flushdns",
-    description: "Löscht zwischengespeicherte DNS-Einträge. Hilft, wenn Webseiten auf alte Adressen zeigen.",
-    needsAdmin: false,
-    perAdapter: false,
-    success: "DNS-Cache geleert",
-  },
-  {
-    kind: "registerDns",
-    title: "DNS neu registrieren",
-    command: "ipconfig /registerdns",
-    description: "Erneuert alle DHCP-Leases und registriert den Computernamen neu im DNS.",
-    needsAdmin: true,
-    perAdapter: false,
-    success: "DNS-Registrierung gestartet",
-  },
-];
-
-// Alle Button-Beschriftungen gleich breit, damit die Klammern untereinander stehen.
-const LABEL_WIDTH = Math.max(...ACTIONS.map((a) => a.title.length));
+/** Zustand des laufenden Ablaufs */
+interface Running {
+  def: ActionDef;
+  handle: RunHandle | null;
+  step: number;
+  total: number;
+  /** Beschriftung pro Schritt (aus den Schrittmarkern des Backends) */
+  labels: Map<number, string>;
+  /** Schritte, die nur noch zur Wiederherstellung liefen */
+  recovered: string[];
+  /** Ausgabezeilen pro Schritt – für die Fehlererklärung zählt nur der gescheiterte */
+  stepLines: Map<number, string[]>;
+}
 
 export function createActions(): HTMLElement {
   const select = h("select", { class: "tselect", id: "adapter-select", "aria-label": "Adapter" });
-  let running: ActionDef["kind"] | null = null;
+  let running: Running | null = null;
 
   const adminNote = h(
     "div",
     { class: "note" },
-    tag("!", "err"),
+    tag("[!]", "err"),
     " Net-Conf läuft als ",
     h("span", { class: "plain" }, "[USER]"),
-    ". Aktionen mit (Admin nötig) sind gesperrt.  ",
+    ". Aktionen mit [ADMIN] sind gesperrt (Admin nötig).  ",
     tbutton("Als Administrator neu starten", { onclick: () => void askRestartAsAdmin() }),
   );
 
-  const rows = ACTIONS.map((def) => {
-    const btn = tbutton(def.title.padEnd(LABEL_WIDTH), { onclick: () => void runAction(def) });
-    const note = h("span", { class: "action-note dim" });
-    const row = h(
-      "div",
-      { class: "action-row" },
-      btn,
-      note,
-      h(
-        "div",
-        { class: "action-info" },
-        h("div", { class: "plain" }, def.command, def.perAdapter ? h("span", { class: "dim" }, " [Adapter]") : null),
-        h("div", { class: "dim" }, def.description),
-      ),
-    );
-    return { def, btn, note, row };
+  const targetPanel = panel(
+    "AUSWAHL",
+    {},
+    kvRow("Adapter", h("span", { class: "select-wrap" }, select)),
+    kvRow("Gilt für", h("span", { class: "dim" }, "IP / DHCP und Adapter – alles andere wirkt systemweit")),
+    kvRow(
+      "Legende",
+      h("span", {}, "[ADMIN] ", h("span", { class: "dim" }, "Administratorrechte nötig   "), tag("[!]", "err"),
+        h("span", { class: "dim" }, " unterbricht/ändert das Netz, mit Bestätigung")),
+    ),
+    adminNote,
+  );
+
+  // Hinweise in einzelnen Panels
+  const adapterHint = h("p", { class: "dim action-hint" }, "Wähle oben einen konkreten Adapter (nicht „Alle Adapter“).");
+  const repairWarn = h(
+    "p",
+    { class: "action-hint" },
+    tag("[!]", "err"),
+    " Ändert Netzwerkeinstellungen. Nur verwenden, wenn sonst nichts hilft – danach ist ein Neustart von Windows nötig.",
+  );
+  const rebootNote = h(
+    "p",
+    { class: "action-hint" },
+    tag("[NEUSTART ERFORDERLICH]", "err"),
+    " Windows neu starten, damit die Änderung wirkt.",
+  );
+  rebootNote.hidden = true;
+
+  // --- Zeilen aufbauen ----------------------------------------------------
+  const rows: Row[] = ACTIONS.map((def) => {
+    const btn = tbutton(def.title.padEnd(LABEL_WIDTH), { onclick: () => void onButton(def) });
+    const flags = h("span", { class: "action-flags" });
+    const cmd = h("span", { class: "action-cmd" });
+    return { def, btn, flags, cmd };
   });
 
-  const p = panel(
-    "IPCONFIG",
-    {},
-    kvRow("Adapter", h("span", { class: "select-wrap" }, select), h("span", { class: "dim" }, "gilt für freigeben/erneuern")),
-    adminNote,
-    h("div", { class: "action-list" }, ...rows.map((r) => r.row)),
-  );
+  const panels = GROUPS.map((g) => {
+    const groupRows = rows.filter((r) => r.def.group === g.id);
+    const list = h(
+      "div",
+      { class: "action-list" },
+      ...groupRows.map((r) =>
+        h("div", { class: "action-row" }, r.btn, r.flags, r.cmd, h("span", { class: "action-desc dim" }, r.def.description)),
+      ),
+    );
+    const extra: Child[] =
+      g.id === "adapter" ? [adapterHint] : g.id === "repair" ? [repairWarn] : [];
+    return panel(g.title, { cls: "action-panel" }, ...extra, list, g.id === "repair" ? rebootNote : null).el;
+  });
 
   const view = h(
     "section",
     { class: "view", "data-view": "actions" },
-    prompt("ipconfig [/release | /renew | /flushdns | /registerdns]").el,
-    p.el,
+    prompt("ipconfig | arp | nbtstat | netsh").el,
+    h("div", { class: "stack" }, targetPanel.el, ...panels),
   );
+  view.style.setProperty("--btn-w", `${LABEL_WIDTH + 4}ch`); // + "[ " und " ]"
 
-  // --- Darstellung aktualisieren ------------------------------------------
+  // --- Darstellung --------------------------------------------------------
   const renderSelect = () => {
     const previous = select.value;
     select.replaceChildren(h("option", { value: "" }, "Alle Adapter"));
@@ -121,70 +123,181 @@ export function createActions(): HTMLElement {
     if (state.adapters.some((a) => a.name === previous)) select.value = previous;
   };
 
-  const renderButtons = () => {
-    adminNote.hidden = state.isAdmin || state.loading;
-    for (const { def, btn, note } of rows) {
-      const locked = def.needsAdmin && !state.isAdmin;
-      btn.textContent = running === def.kind ? "läuft …".padEnd(LABEL_WIDTH) : def.title.padEnd(LABEL_WIDTH);
-      // Gesperrt (kein Admin): klickbar, bietet Neustart an. Belegt: gedimmt mit [x].
-      btn.disabled = state.busy && running !== def.kind;
-      btn.classList.toggle("locked", locked);
-      note.textContent = running === def.kind ? "" : locked ? "(Admin nötig)" : btn.disabled ? "[x]" : "";
-      btn.title = locked
+  /** Spalte "Befehl bzw. Ablauf" */
+  const renderCmd = (r: Row) => {
+    const adapter = select.value;
+    const steps = r.def.steps;
+    if (steps.length === 1) {
+      const s = steps[0];
+      replaceChildren(
+        r.cmd,
+        h("span", { class: "plain" }, s.cmd ?? ""),
+        s.perAdapter ? h("span", { class: "dim" }, ` [${adapter || "alle"}]`) : null,
+      );
+      r.cmd.title = s.cmd ?? "";
+      return;
+    }
+    // Ablauf: "1 release > 2 warten > 3 renew" – Umbruch nur zwischen den Schritten
+    const parts: Child[] = [];
+    steps.forEach((s, i) => {
+      if (i > 0) parts.push(h("span", { class: "dim" }, " > "));
+      parts.push(h("span", { class: "seq-step" }, h("span", { class: "dim" }, `${i + 1} `), h("span", { class: "plain" }, s.short)));
+    });
+    replaceChildren(r.cmd, ...parts);
+    r.cmd.title = steps.map((s, i) => `${i + 1}. ${stepText(s)}`).join("\n");
+  };
+
+  /** Button + Spalte "Status/Tags" */
+  const renderRow = (r: Row) => {
+    const { def, btn, flags } = r;
+    const isRunning = running?.def.id === def.id;
+    const locked = def.admin && !state.isAdmin;
+    const noAdapter = def.adapter === "required" && !select.value;
+
+    btn.textContent = (isRunning ? "Abbrechen" : def.title).padEnd(LABEL_WIDTH);
+    // Gesperrt (kein Admin): klickbar, bietet Neustart an. Belegt/kein Adapter: gedimmt mit [x].
+    btn.disabled = !isRunning && (state.busy || noAdapter);
+    btn.classList.toggle("locked", locked && !isRunning);
+
+    if (isRunning && running) {
+      const progress = running.total > 1 ? ` ${Math.max(running.step, 1)}/${running.total}` : " …";
+      replaceChildren(flags, tag(`läuft${progress}`, "ok"));
+    } else if (locked) {
+      replaceChildren(flags, h("span", { class: "dim" }, "(Admin nötig)"));
+    } else if (btn.disabled) {
+      replaceChildren(flags, h("span", { class: "dim" }, "[x]"));
+    } else {
+      replaceChildren(flags, def.admin ? tag("[ADMIN]") : null, def.admin && def.danger ? " " : null, def.danger ? tag("[!]", "err") : null);
+    }
+
+    btn.title = isRunning
+      ? "Laufenden Ablauf abbrechen"
+      : locked
         ? "Dafür werden Administratorrechte benötigt. Klicken, um Net-Conf als Administrator neu zu starten."
-        : btn.disabled
-          ? "Gesperrt, solange ein anderer Befehl läuft"
-          : def.command;
+        : noAdapter
+          ? "Bitte oben einen konkreten Adapter wählen"
+          : btn.disabled
+            ? "Gesperrt, solange eine andere Aktion läuft"
+            : def.description;
+  };
+
+  const render = () => {
+    adminNote.hidden = state.isAdmin || state.loading;
+    adapterHint.hidden = select.value !== "";
+    for (const r of rows) {
+      renderCmd(r);
+      renderRow(r);
     }
   };
 
   onStateChange(() => {
     renderSelect();
-    renderButtons();
+    render();
   });
+  select.addEventListener("change", render);
   renderSelect();
-  renderButtons();
+  render();
 
-  // --- Ausführen ---------------------------------------------------------
-  async function runAction(def: ActionDef): Promise<void> {
+  // --- Ausführen ----------------------------------------------------------
+  async function onButton(def: ActionDef): Promise<void> {
+    if (running?.def.id === def.id) return cancelRunning();
     if (state.busy) return;
-    if (def.needsAdmin && !state.isAdmin) {
+    if (def.admin && !state.isAdmin) {
       return askRestartAsAdmin(`„${def.title}“ benötigt Administratorrechte.`);
     }
-    const adapter = def.perAdapter && select.value ? select.value : null;
+    const adapter = def.adapter !== "none" && select.value ? select.value : null;
+    if (def.adapter === "required" && !adapter) {
+      status("Bitte oben einen konkreten Adapter wählen.", "error");
+      return;
+    }
 
-    if (def.kind === "release") {
+    if (def.danger && def.confirm) {
+      const where = adapter ? `„${adapter}“` : "alle Adapter";
       const ok = await confirmDialog({
-        title: "IP-Adresse freigeben?",
-        message:
-          `Die Verbindung wird getrennt (${adapter ?? "alle Adapter"}). ` +
-          "Danach hast du kein Netzwerk mehr, bis du „IP erneuern“ ausführst.",
-        confirmText: "Freigeben",
+        title: def.confirm.title,
+        message: def.confirm.message.replace("{adapter}", where),
+        confirmText: def.confirm.confirmText,
         danger: true,
       });
       if (!ok) return;
     }
 
-    const command: NetCommand =
-      def.kind === "release" || def.kind === "renew" ? { kind: def.kind, adapter } : { kind: def.kind };
-
-    running = def.kind;
+    const run: Running = { def, handle: null, step: 0, total: def.steps.length, labels: new Map(), recovered: [], stepLines: new Map() };
+    running = run;
     setState({ busy: true });
-    status(`${def.command} läuft …`);
+    status(`${def.title} läuft …`);
+    let needsReboot = false;
     try {
-      const handle = await startCommand(command);
-      const result = await handle.done;
-      if (result.exitCode === 0) status(def.success, "ok");
-      else status(explainFailure(command, result.exitCode, result.lines, state.isAdmin), "error");
+      run.handle = await startAction(def.id, adapter, {
+        onLine: (line) => {
+          const n = Math.max(run.step, 1);
+          run.stepLines.set(n, [...(run.stepLines.get(n) ?? []), line]);
+        },
+        onStep: (e) => {
+          run.step = e.index;
+          run.labels.set(e.index, e.label);
+          if (e.recovery) run.recovered.push(e.label);
+          render();
+          status(`[${e.index}/${e.total}] ${e.label} …`);
+        },
+      });
+      const result = await run.handle.done;
+      const recoveredText = run.recovered.length
+        ? ` Zur Wiederherstellung wurde „${run.recovered.join("“, „")}“ trotzdem ausgeführt.`
+        : "";
+
+      if (result.cancelled) {
+        status(`„${def.title}“ abgebrochen.${recoveredText}`, "error");
+      } else if (result.exitCode === 0 && result.failedStep === null) {
+        status(def.success, "ok");
+        needsReboot = def.reboot;
+      } else {
+        const n = result.failedStep ?? 1;
+        const lines = run.total > 1 ? (run.stepLines.get(n) ?? []) : result.lines;
+        const reason = result.error ?? explainActionFailure(def, adapter, result.exitCode, lines, state.isAdmin);
+        const where =
+          run.total > 1 ? `Schritt ${n}/${run.total} (${run.labels.get(n) ?? def.steps[n - 1]?.short}) ist fehlgeschlagen` : `„${def.title}“ ist fehlgeschlagen`;
+        status(`${where}: ${reason}${recoveredText}`, "error");
+      }
     } catch (err) {
       status(errorText(err), "error");
     } finally {
       running = null;
       setState({ busy: false });
-      // Nach release/renew haben sich die Adressen geändert → Panels neu laden.
-      if (def.kind === "release" || def.kind === "renew") await refreshAll();
+      // Neue IP, neuer Status → Panels neu laden. Nach einem Adapter-Neustart
+      // braucht DHCP ein paar Sekunden, darum später noch einmal.
+      if (def.changesIp) {
+        await refreshAll();
+        if (def.id === "adapterRestart") setTimeout(() => void refreshAll(), 5000);
+      }
+    }
+    if (needsReboot) await showRebootNotice(def);
+  }
+
+  async function cancelRunning(): Promise<void> {
+    const r = running;
+    if (!r?.handle) return;
+    status(`„${r.def.title}“ wird abgebrochen …`);
+    try {
+      await r.handle.cancel();
+    } catch (err) {
+      status(errorText(err), "error");
     }
   }
 
+  async function showRebootNotice(def: ActionDef): Promise<void> {
+    rebootNote.hidden = false;
+    await confirmDialog({
+      title: "Neustart erforderlich",
+      message: `„${def.title}“ war erfolgreich. Starte Windows neu, damit die Änderung wirkt. Bis dahin kann das Netzwerk eingeschränkt sein.`,
+      confirmText: "Verstanden",
+      infoOnly: true,
+    });
+  }
+
   return view;
+}
+
+function stepText(s: ActionStep): string {
+  return s.waitMs ? `warten (${s.waitMs / 1000} s)` : (s.cmd ?? s.short);
 }

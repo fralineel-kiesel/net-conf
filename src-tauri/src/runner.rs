@@ -1,33 +1,41 @@
 //! Erlaubte Netzwerk-Befehle ausführen und die Ausgabe live streamen.
 //!
-//! Sicherheit: Das Frontend schickt KEINE Befehlszeilen, sondern nur ein
-//! `NetCommand` aus einer festen Liste. Programm und Argumente baut
-//! ausschliesslich das Backend zusammen. Freie Werte (Ping-Ziel,
-//! Adaptername) werden streng geprüft. Ausserdem läuft keine Shell
-//! (cmd.exe) dazwischen – die Argumente gehen direkt an den Prozess.
+//! Sicherheit: Das Frontend schickt KEINE Befehlszeilen, sondern nur
+//! * ein `NetCommand` (Ping, Traceroute) mit streng geprüften Werten oder
+//! * eine Aktions-ID (siehe `actions.rs`), z. B. `releaseRenew`.
+//!
+//! Programm und Argumente baut ausschliesslich das Backend zusammen. Es läuft
+//! keine Shell (cmd.exe) dazwischen – die Argumente gehen als Liste direkt an
+//! den Prozess.
+//!
+//! Intern ist alles ein **Ablauf** (`Plan`) aus Schritten: Prozess starten
+//! oder warten. Ein Ping ist ein Ablauf mit genau einem Schritt,
+//! "Release + Renew" einer mit drei (release → warten → renew).
 //!
 //! Events an das Frontend:
 //! * `cmd-started`  { runId, commandLine }
+//! * `cmd-step`     { runId, index, total, label, recovery }   (nur bei mehreren Schritten)
 //! * `cmd-output`   { runId, stream: "stdout" | "stderr", line }
-//! * `cmd-finished` { runId, exitCode, cancelled }
+//! * `cmd-finished` { runId, exitCode, cancelled, failedStep, error }
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
-/// Die Whitelist: nur diese Befehle sind möglich.
+/// Erlaubte Werte für `ping -n`. Alles andere lehnt das Backend ab.
+/// (`count: None` = unbegrenzt, also `ping -t`.)
+pub const PING_COUNTS: [u32; 5] = [2, 4, 8, 16, 32];
+
+/// Die Whitelist für Werkzeuge mit freier Eingabe (Ziel).
 /// Im JSON sieht das z. B. so aus: `{ "kind": "ping", "target": "1.1.1.1", "count": 4 }`
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum NetCommand {
-    Release { adapter: Option<String> },
-    Renew { adapter: Option<String> },
-    FlushDns,
-    RegisterDns,
     /// `count: None` = unbegrenzt (`ping -t`), bis abgebrochen wird.
     Ping { target: String, count: Option<u32> },
     /// Routenverfolgung. `resolve = false` → `tracert -d` (keine Namensauflösung, viel schneller).
@@ -38,13 +46,199 @@ pub enum NetCommand {
     },
 }
 
-/// Ein laufender Prozess.
-struct Running {
-    child: Mutex<Child>,
-    cancelled: AtomicBool,
+// ---------------------------------------------------------------------------
+// Abläufe und Schritte
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StepKind {
+    /// Programm aus System32 (Name ohne ".exe") mit festen Argumenten.
+    Run { program: &'static str, args: Vec<String> },
+    /// Warten, z. B. zwischen release und renew.
+    Wait { ms: u64 },
 }
 
-/// Tauri-State: alle aktuell laufenden Prozesse, Schlüssel = runId.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Step {
+    pub kind: StepKind,
+    /// Trennt die Verbindung (z. B. `ipconfig /release`, Adapter deaktivieren).
+    pub disruptive: bool,
+    /// Stellt die Verbindung wieder her (z. B. `ipconfig /renew`, Adapter
+    /// aktivieren). Läuft AUCH nach einem Fehler oder Abbruch – aber nur, wenn
+    /// vorher ein `disruptive`-Schritt lief. Sonst stünde man ohne Netz da.
+    pub restore: bool,
+}
+
+impl Step {
+    pub fn run(program: &'static str, args: &[&str]) -> Step {
+        Step {
+            kind: StepKind::Run { program, args: args.iter().map(|a| a.to_string()).collect() },
+            disruptive: false,
+            restore: false,
+        }
+    }
+
+    /// Wie `run`, aber mit einem zusätzlichen Argument (z. B. Adaptername).
+    /// Der Name ist ein EIGENES Argument – er wird nie in einen String eingebaut.
+    pub fn run_with(program: &'static str, args: &[&str], extra: Option<&str>) -> Step {
+        let mut step = Step::run(program, args);
+        if let (StepKind::Run { args, .. }, Some(x)) = (&mut step.kind, extra) {
+            args.push(x.to_string());
+        }
+        step
+    }
+
+    pub fn wait(ms: u64) -> Step {
+        Step { kind: StepKind::Wait { ms }, disruptive: false, restore: false }
+    }
+
+    pub fn disruptive(mut self) -> Step {
+        self.disruptive = true;
+        self
+    }
+
+    pub fn restore(mut self) -> Step {
+        self.restore = true;
+        self
+    }
+
+    /// Anzeige für Konsole und Schrittmarker, z. B. `ipconfig /renew "WLAN"`.
+    pub fn label(&self) -> String {
+        match &self.kind {
+            StepKind::Run { program, args } => display_line(program, args),
+            StepKind::Wait { ms } => format!("warten ({} s)", ms.div_ceil(1000)),
+        }
+    }
+}
+
+/// Ein Ablauf: Titel (erste Konsolenzeile) und Schritte.
+#[derive(Debug, Clone)]
+pub struct Plan {
+    pub title: String,
+    pub steps: Vec<Step>,
+}
+
+impl Plan {
+    /// Ablauf mit genau einem Schritt – der Titel ist die Befehlszeile.
+    pub fn single(step: Step) -> Plan {
+        Plan { title: step.label(), steps: vec![step] }
+    }
+}
+
+/// So sieht der Befehl in der Konsole aus. Argumente mit Leerzeichen in
+/// Anführungszeichen – genau so, wie Rust sie unter Windows auch übergibt.
+fn display_line(program: &str, args: &[String]) -> String {
+    let shown: Vec<String> = args
+        .iter()
+        .map(|a| if a.contains(' ') { format!("\"{a}\"") } else { a.clone() })
+        .collect();
+    if shown.is_empty() {
+        program.to_string()
+    } else {
+        format!("{program} {}", shown.join(" "))
+    }
+}
+
+/// Ergebnis eines einzelnen Schritts.
+#[derive(Debug, Clone, Default)]
+struct StepResult {
+    code: Option<i32>,
+    /// Vom Benutzer abgebrochen (zählt nicht als Fehler).
+    killed: bool,
+    /// Prozess liess sich nicht starten.
+    error: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct Outcome {
+    exit_code: Option<i32>,
+    /// 1-basiert: welcher Schritt zuerst gescheitert ist.
+    failed_step: Option<u32>,
+    error: Option<String>,
+    /// Indizes der ausgeführten Schritte (für Tests).
+    #[allow(dead_code)]
+    ran: Vec<usize>,
+}
+
+/// Die Ablauf-Logik – ohne Prozesse, damit sie testbar ist.
+///
+/// * Scheitert ein Schritt, werden die restlichen Schritte übersprungen.
+/// * Bei Abbruch ebenso.
+/// * Ausnahme: `restore`-Schritte laufen trotzdem, wenn vorher ein
+///   `disruptive`-Schritt lief (renew nach release, aktivieren nach deaktivieren).
+///
+/// `run(index, step, recovery)` führt einen Schritt aus; `recovery = true`
+/// heisst: läuft nur noch zur Wiederherstellung.
+fn execute_steps<C, R>(steps: &[Step], cancelled: C, mut run: R) -> Outcome
+where
+    C: Fn() -> bool,
+    R: FnMut(usize, &Step, bool) -> StepResult,
+{
+    let mut dirty = false; // Verbindung getrennt und noch nicht wiederhergestellt
+    let mut failed: Option<(u32, Option<i32>)> = None;
+    let mut last_code = None;
+    let mut out = Outcome::default();
+
+    for (i, step) in steps.iter().enumerate() {
+        let stopping = cancelled() || failed.is_some();
+        if stopping && !(step.restore && dirty) {
+            continue;
+        }
+        if step.disruptive {
+            dirty = true; // schon beim Versuch: auch ein halber release kann trennen
+        }
+        out.ran.push(i);
+        let r = run(i, step, stopping);
+        if matches!(step.kind, StepKind::Wait { .. }) {
+            continue;
+        }
+        let ok = r.error.is_none() && r.code == Some(0);
+        last_code = r.code;
+        if out.error.is_none() {
+            out.error = r.error;
+        }
+        if ok {
+            if step.restore {
+                dirty = false;
+            }
+        } else if !r.killed && failed.is_none() {
+            failed = Some((i as u32 + 1, r.code));
+        }
+    }
+
+    out.failed_step = failed.map(|f| f.0);
+    out.exit_code = failed.map_or(last_code, |f| f.1);
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Laufende Abläufe (Tauri-State)
+// ---------------------------------------------------------------------------
+
+/// Ein laufender Ablauf.
+struct Running {
+    /// Der Prozess des aktuellen Schritts (None während "warten").
+    child: Mutex<Option<Child>>,
+    /// Zähler statt true/false: So erkennt ein Wiederherstellungs-Schritt,
+    /// ob ER abgebrochen wurde oder ob der Abbruch schon vorher kam.
+    cancels: AtomicU32,
+}
+
+impl Running {
+    fn cancels(&self) -> u32 {
+        self.cancels.load(Ordering::SeqCst)
+    }
+
+    fn cancel(&self) {
+        self.cancels.fetch_add(1, Ordering::SeqCst);
+        if let Some(child) = lock(&self.child).as_mut() {
+            // Fehler ignorieren: Der Prozess kann gerade von selbst beendet sein.
+            let _ = child.kill();
+        }
+    }
+}
+
+/// Tauri-State: alle aktuell laufenden Abläufe, Schlüssel = runId.
 #[derive(Default)]
 pub struct Runner {
     running: Mutex<HashMap<u32, Arc<Running>>>,
@@ -52,21 +246,20 @@ pub struct Runner {
 
 impl Runner {
     fn map(&self) -> MutexGuard<'_, HashMap<u32, Arc<Running>>> {
-        // Bei panic=abort gibt es kein "vergiftetes" Mutex, aber sicher ist sicher.
-        self.running.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.running)
     }
 
     /// Beendet alle laufenden Prozesse (z. B. beim Schliessen der App,
     /// sonst würde ein `ping -t` unsichtbar weiterlaufen).
     pub fn kill_all(&self) {
         for r in self.map().values() {
-            r.cancelled.store(true, Ordering::SeqCst);
-            let _ = lock(&r.child).kill();
+            r.cancel();
         }
     }
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    // Bei panic=abort gibt es kein "vergiftetes" Mutex, aber sicher ist sicher.
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -75,6 +268,16 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 struct StartedEvent {
     run_id: u32,
     command_line: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StepEvent {
+    run_id: u32,
+    index: u32,
+    total: u32,
+    label: String,
+    recovery: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -91,9 +294,11 @@ struct FinishedEvent {
     run_id: u32,
     exit_code: Option<i32>,
     cancelled: bool,
+    failed_step: Option<u32>,
+    error: Option<String>,
 }
 
-/// Startet einen erlaubten Befehl. Die `run_id` vergibt das Frontend, damit
+/// Startet Ping oder Traceroute. Die `run_id` vergibt das Frontend, damit
 /// es Events schon zuordnen kann, bevor dieser Aufruf zurückkehrt.
 #[tauri::command]
 pub fn run_command(
@@ -102,17 +307,121 @@ pub fn run_command(
     run_id: u32,
     command: NetCommand,
 ) -> Result<(), String> {
-    let (program, args, command_line) = build_command(&command)?;
+    let plan = build_command(&command)?;
+    start_plan(app, &runner, run_id, plan)
+}
 
-    if runner.map().contains_key(&run_id) {
-        return Err("Interner Fehler: runId wird bereits verwendet.".into());
+/// Startet eine Aktion aus der festen Liste (siehe `actions.rs`).
+/// `adapter`: Name des Adapters oder None = alle Adapter.
+#[tauri::command]
+pub fn run_action(
+    app: AppHandle,
+    runner: State<'_, Runner>,
+    run_id: u32,
+    action: crate::actions::ActionId,
+    adapter: Option<String>,
+) -> Result<(), String> {
+    let plan = crate::actions::plan(action, adapter.as_deref())?;
+    start_plan(app, &runner, run_id, plan)
+}
+
+/// Bricht einen laufenden Ablauf ab (aktueller Prozess wird beendet).
+#[tauri::command]
+pub fn cancel_command(runner: State<'_, Runner>, run_id: u32) -> Result<(), String> {
+    let running = runner.map().get(&run_id).cloned();
+    if let Some(r) = running {
+        r.cancel();
+    }
+    Ok(()) // läuft er schon nicht mehr, ist das kein Fehler
+}
+
+fn start_plan(app: AppHandle, runner: &Runner, run_id: u32, plan: Plan) -> Result<(), String> {
+    // Programmpfade vorab prüfen – ein nicht verfügbares Programm fällt so
+    // sofort auf und nicht erst mitten im Ablauf.
+    for step in &plan.steps {
+        if let StepKind::Run { program, .. } = &step.kind {
+            program_path(program)?;
+        }
     }
 
-    let mut cmd = Command::new(&program);
-    cmd.args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let running = Arc::new(Running { child: Mutex::new(None), cancels: AtomicU32::new(0) });
+    {
+        let mut map = runner.map();
+        if map.contains_key(&run_id) {
+            return Err("Interner Fehler: runId wird bereits verwendet.".into());
+        }
+        map.insert(run_id, running.clone());
+    }
+
+    let _ = app.emit("cmd-started", StartedEvent { run_id, command_line: plan.title.clone() });
+
+    // Der ganze Ablauf läuft in einem eigenen Thread – das Fenster bleibt bedienbar.
+    std::thread::spawn(move || {
+        let total = plan.steps.len() as u32;
+        let outcome = execute_steps(
+            &plan.steps,
+            || running.cancels() > 0,
+            |i, step, recovery| {
+                // Schrittmarker nur bei echten Abläufen, nicht bei einem einzelnen Ping
+                if total > 1 {
+                    let _ = app.emit(
+                        "cmd-step",
+                        StepEvent { run_id, index: i as u32 + 1, total, label: step.label(), recovery },
+                    );
+                }
+                match &step.kind {
+                    StepKind::Wait { ms } => {
+                        sleep_cancellable(*ms, &running);
+                        StepResult { code: Some(0), ..Default::default() }
+                    }
+                    StepKind::Run { program, args } => run_process(&app, run_id, &running, program, args),
+                }
+            },
+        );
+        let cancelled = running.cancels() > 0;
+        {
+            use tauri::Manager;
+            app.state::<Runner>().map().remove(&run_id);
+        }
+        let _ = app.emit(
+            "cmd-finished",
+            FinishedEvent {
+                run_id,
+                exit_code: outcome.exit_code,
+                cancelled,
+                failed_step: outcome.failed_step,
+                error: outcome.error,
+            },
+        );
+    });
+
+    Ok(())
+}
+
+/// Wartet `ms` Millisekunden in kleinen Stücken, damit "Abbrechen" sofort greift.
+fn sleep_cancellable(ms: u64, running: &Running) {
+    let start_cancels = running.cancels();
+    let end = Instant::now() + Duration::from_millis(ms);
+    while Instant::now() < end && running.cancels() == start_cancels {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Einen Prozess starten, Ausgabe streamen, auf das Ende warten.
+fn run_process(app: &AppHandle, run_id: u32, running: &Running, program: &str, args: &[String]) -> StepResult {
+    let fail = |e: String| {
+        let _ = app.emit("cmd-output", OutputEvent { run_id, stream: "stderr", line: e.clone() });
+        StepResult { error: Some(e), ..Default::default() }
+    };
+    let path = match program_path(program) {
+        Ok(p) => p,
+        Err(e) => return fail(e),
+    };
+
+    let mut cmd = Command::new(&path);
+    // Argumente als Liste – Rust setzt unter Windows selbst die nötigen
+    // Anführungszeichen (z. B. um "vEthernet (Default Switch)").
+    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
     #[cfg(windows)]
     {
@@ -122,21 +431,24 @@ pub fn run_command(
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Befehl konnte nicht gestartet werden: {e}"))?;
+    let cancels_at_start = running.cancels();
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return fail(format!("{program} konnte nicht gestartet werden: {e}")),
+    };
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
+    *lock(&running.child) = Some(child);
 
-    let running = Arc::new(Running {
-        child: Mutex::new(child),
-        cancelled: AtomicBool::new(false),
-    });
-    runner.map().insert(run_id, running.clone());
+    // Kam der Abbruch genau während des Starts? Dann jetzt beenden.
+    if running.cancels() != cancels_at_start {
+        if let Some(c) = lock(&running.child).as_mut() {
+            let _ = c.kill();
+        }
+    }
 
-    let _ = app.emit("cmd-started", StartedEvent { run_id, command_line });
-
-    // Je ein Thread liest stdout und stderr zeilenweise.
+    // Je ein Thread liest stdout und stderr zeilenweise. Sie enden von
+    // selbst, sobald der Prozess beendet ist (Pipe zu).
     let mut readers = Vec::new();
     if let Some(pipe) = stdout {
         readers.push(spawn_reader(app.clone(), run_id, "stdout", pipe));
@@ -144,38 +456,14 @@ pub fn run_command(
     if let Some(pipe) = stderr {
         readers.push(spawn_reader(app.clone(), run_id, "stderr", pipe));
     }
-
-    // Ein dritter Thread wartet auf das Ende und meldet es dem Frontend.
-    // Die Reader enden von selbst, sobald der Prozess beendet ist (Pipe zu).
-    std::thread::spawn(move || {
-        for r in readers {
-            let _ = r.join();
-        }
-        let exit_code = lock(&running.child).wait().ok().and_then(|s| s.code());
-        let cancelled = running.cancelled.load(Ordering::SeqCst);
-        {
-            use tauri::Manager;
-            app.state::<Runner>().map().remove(&run_id);
-        }
-        let _ = app.emit("cmd-finished", FinishedEvent { run_id, exit_code, cancelled });
-    });
-
-    Ok(())
-}
-
-/// Bricht einen laufenden Befehl ab (Prozess wird beendet).
-#[tauri::command]
-pub fn cancel_command(runner: State<'_, Runner>, run_id: u32) -> Result<(), String> {
-    let running = runner.map().get(&run_id).cloned();
-    match running {
-        Some(r) => {
-            r.cancelled.store(true, Ordering::SeqCst);
-            // Fehler ignorieren: Der Prozess kann gerade von selbst beendet sein.
-            let _ = lock(&r.child).kill();
-            Ok(())
-        }
-        None => Ok(()), // läuft schon nicht mehr – kein Fehler
+    for r in readers {
+        let _ = r.join();
     }
+
+    // Prozess aus dem State nehmen und Exit-Code abholen (er ist schon beendet).
+    let child = lock(&running.child).take();
+    let code = child.and_then(|mut c| c.wait().ok()).and_then(|s| s.code());
+    StepResult { code, killed: running.cancels() != cancels_at_start, error: None }
 }
 
 fn spawn_reader<R: Read + Send + 'static>(
@@ -205,42 +493,21 @@ fn spawn_reader<R: Read + Send + 'static>(
 }
 
 // ---------------------------------------------------------------------------
-// Befehle zusammenbauen
+// Ping / Traceroute zusammenbauen
 // ---------------------------------------------------------------------------
 
-/// Liefert (Programm, Argumente, Anzeige-Text) für einen erlaubten Befehl.
-fn build_command(cmd: &NetCommand) -> Result<(String, Vec<String>, String), String> {
-    let (program_name, args): (&str, Vec<String>) = match cmd {
-        NetCommand::Release { adapter } => ("ipconfig", with_adapter("/release", adapter)?),
-        NetCommand::Renew { adapter } => ("ipconfig", with_adapter("/renew", adapter)?),
-        NetCommand::FlushDns => ("ipconfig", vec!["/flushdns".into()]),
-        NetCommand::RegisterDns => ("ipconfig", vec!["/registerdns".into()]),
+fn build_command(cmd: &NetCommand) -> Result<Plan, String> {
+    let step = match cmd {
         NetCommand::Ping { target, count } => {
             let target = validate_target(target)?;
-            ("ping", ping_args(&target, *count)?)
+            Step { kind: StepKind::Run { program: "ping", args: ping_args(&target, *count)? }, disruptive: false, restore: false }
         }
         NetCommand::Tracert { target, resolve } => {
             let target = validate_target(target)?;
-            ("tracert", tracert_args(&target, *resolve))
+            Step { kind: StepKind::Run { program: "tracert", args: tracert_args(&target, *resolve) }, disruptive: false, restore: false }
         }
     };
-
-    // Anzeige wie in der Konsole, z. B.: ipconfig /renew "WLAN"
-    let shown_args: Vec<String> = args
-        .iter()
-        .map(|a| if a.contains(' ') { format!("\"{a}\"") } else { a.clone() })
-        .collect();
-    let command_line = format!("{program_name} {}", shown_args.join(" "));
-
-    Ok((program_path(program_name)?, args, command_line))
-}
-
-fn with_adapter(option: &str, adapter: &Option<String>) -> Result<Vec<String>, String> {
-    let mut args = vec![option.to_string()];
-    if let Some(name) = adapter {
-        args.push(validate_adapter(name)?);
-    }
-    Ok(args)
+    Ok(Plan::single(step))
 }
 
 /// Volle Pfade zu System32 verwenden, damit nicht versehentlich eine
@@ -251,7 +518,7 @@ fn program_path(name: &str) -> Result<String, String> {
     Ok(format!(r"{root}\System32\{name}.exe"))
 }
 
-/// Ausserhalb von Windows gibt es kein ipconfig – nur ping funktioniert.
+/// Ausserhalb von Windows gibt es kein ipconfig/netsh – nur ping funktioniert.
 #[cfg(not(windows))]
 fn program_path(name: &str) -> Result<String, String> {
     match name {
@@ -290,11 +557,12 @@ fn tracert_args(target: &str, resolve: bool) -> Vec<String> {
     args
 }
 
+/// Nur die Werte aus `PING_COUNTS` sind erlaubt.
 fn validate_count(n: u32) -> Result<u32, String> {
-    if (1..=100).contains(&n) {
+    if PING_COUNTS.contains(&n) {
         Ok(n)
     } else {
-        Err("Die Anzahl muss zwischen 1 und 100 liegen.".into())
+        Err("Ungültige Anzahl. Erlaubt sind 2, 4, 8, 16, 32 oder unbegrenzt.".into())
     }
 }
 
@@ -323,10 +591,22 @@ pub fn validate_target(raw: &str) -> Result<String, String> {
 
 /// Adaptername prüfen (z. B. "WLAN", "Ethernet 2", "vEthernet (WSL)").
 /// Erlaubt: Buchstaben inkl. Umlaute, Ziffern, Leerzeichen, - _ . ( ) #
-/// Zusätzlich muss es einen Adapter mit genau diesem Namen geben.
-pub fn validate_adapter(raw: &str) -> Result<String, String> {
-    let name = raw.trim();
-    if name.is_empty() || name.chars().count() > 128 {
+/// Zusätzlich muss es einen Adapter mit GENAU diesem Namen geben
+/// (Abgleich mit der aktuellen Adapterliste von Windows).
+pub fn validate_adapter(name: &str) -> Result<String, String> {
+    validate_adapter_chars(name)?;
+    let exists = crate::adapters::list_adapters()
+        .map(|list| list.iter().any(|a| a.name == name))
+        .unwrap_or(false);
+    if !exists {
+        return Err(format!("Adapter \"{name}\" wurde nicht gefunden."));
+    }
+    Ok(name.to_string())
+}
+
+/// Nur die Zeichenprüfung (ohne Abgleich mit der Adapterliste).
+fn validate_adapter_chars(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() || name.chars().count() > 128 || name != name.trim() {
         return Err("Ungültiger Adaptername.".into());
     }
     if name.starts_with('-') || name.starts_with('/') {
@@ -341,13 +621,7 @@ pub fn validate_adapter(raw: &str) -> Result<String, String> {
              Bitte \"Alle Adapter\" wählen oder den Adapter in Windows umbenennen."
         ));
     }
-    let exists = crate::adapters::list_adapters()
-        .map(|list| list.iter().any(|a| a.name == name))
-        .unwrap_or(false);
-    if !exists {
-        return Err(format!("Adapter \"{name}\" wurde nicht gefunden."));
-    }
-    Ok(name.to_string())
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +673,7 @@ fn decode_console_bytes(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
 
     #[test]
     fn gueltige_ziele() {
@@ -429,8 +704,11 @@ mod tests {
     #[test]
     fn adapterzeichen() {
         // Ungültige Zeichen werden schon vor der Existenzprüfung abgelehnt.
-        for n in ["", "/all", "-x", "WLAN & calc", "a\"b", "x;y", "*", "a|b"] {
+        for n in ["", "/all", "-x", "WLAN & calc", "a\"b", "x;y", "*", "a|b", " WLAN", "WLAN "] {
             assert!(validate_adapter(n).is_err(), "{n:?} sollte abgelehnt werden");
+        }
+        for n in ["WLAN", "Ethernet 2", "vEthernet (Default Switch)", "Côté #1"] {
+            assert!(validate_adapter_chars(n).is_ok(), "{n:?} sollte erlaubt sein");
         }
     }
 
@@ -445,8 +723,128 @@ mod tests {
 
     #[test]
     fn anzahl() {
-        assert!(validate_count(0).is_err());
-        assert!(validate_count(4).is_ok());
-        assert!(validate_count(101).is_err());
+        for n in PING_COUNTS {
+            assert!(validate_count(n).is_ok());
+        }
+        for n in [0, 1, 3, 5, 100, 1000] {
+            assert!(validate_count(n).is_err(), "{n} sollte abgelehnt werden");
+        }
+        let cmd = NetCommand::Ping { target: "1.1.1.1".into(), count: Some(7) };
+        assert!(build_command(&cmd).is_err());
+    }
+
+    #[test]
+    fn anzeige_mit_anfuehrungszeichen() {
+        let s = Step::run_with("netsh", &["interface", "set", "interface"], Some("vEthernet (WSL)"));
+        assert_eq!(s.label(), "netsh interface set interface \"vEthernet (WSL)\"");
+        assert_eq!(Step::wait(2000).label(), "warten (2 s)");
+    }
+
+    // ---- Ablauf-Logik ----------------------------------------------------
+
+    fn ok() -> StepResult {
+        StepResult { code: Some(0), ..Default::default() }
+    }
+    fn err(code: i32) -> StepResult {
+        StepResult { code: Some(code), ..Default::default() }
+    }
+    fn killed() -> StepResult {
+        StepResult { code: Some(1), killed: true, error: None }
+    }
+
+    /// release → warten → renew
+    fn release_renew() -> Vec<Step> {
+        vec![
+            Step::run("ipconfig", &["/release"]).disruptive(),
+            Step::wait(10),
+            Step::run("ipconfig", &["/renew"]).restore(),
+        ]
+    }
+
+    #[test]
+    fn ablauf_erfolgreich() {
+        let o = execute_steps(&release_renew(), || false, |_, _, _| ok());
+        assert_eq!(o.ran, [0, 1, 2]);
+        assert_eq!(o.failed_step, None);
+        assert_eq!(o.exit_code, Some(0));
+    }
+
+    #[test]
+    fn fehler_bricht_ab() {
+        // flushdns scheitert → nichts weiter (auch kein renew, weil nichts getrennt wurde)
+        let steps = vec![
+            Step::run("ipconfig", &["/flushdns"]),
+            Step::run("ipconfig", &["/release"]).disruptive(),
+            Step::wait(10),
+            Step::run("ipconfig", &["/renew"]).restore(),
+            Step::run("ipconfig", &["/registerdns"]),
+        ];
+        let o = execute_steps(&steps, || false, |i, _, _| if i == 0 { err(1) } else { ok() });
+        assert_eq!(o.ran, [0]);
+        assert_eq!(o.failed_step, Some(1));
+        assert_eq!(o.exit_code, Some(1));
+    }
+
+    #[test]
+    fn renew_laeuft_nach_release_fehler() {
+        // release meldet Fehler → warten wird übersprungen, renew läuft trotzdem
+        let recov = RefCell::new(Vec::new());
+        let o = execute_steps(&release_renew(), || false, |i, _, r| {
+            recov.borrow_mut().push(r);
+            if i == 0 { err(1) } else { ok() }
+        });
+        assert_eq!(o.ran, [0, 2]);
+        assert_eq!(recov.into_inner(), [false, true]);
+        assert_eq!(o.failed_step, Some(1)); // der Fehler wird trotzdem gemeldet
+        assert_eq!(o.exit_code, Some(1));
+    }
+
+    #[test]
+    fn abbruch_waehrend_release_holt_ip_zurueck() {
+        let cancelled = RefCell::new(false);
+        let o = execute_steps(
+            &release_renew(),
+            || *cancelled.borrow(),
+            |i, _, _| {
+                if i == 0 {
+                    *cancelled.borrow_mut() = true;
+                    killed()
+                } else {
+                    ok()
+                }
+            },
+        );
+        assert_eq!(o.ran, [0, 2]);
+        assert_eq!(o.failed_step, None); // Abbruch ist kein Fehler
+    }
+
+    #[test]
+    fn nach_registerdns_kein_weiterer_schritt_bei_abbruch() {
+        // Abbruch nach erfolgreichem renew: registerdns wird übersprungen
+        let steps = vec![
+            Step::run("ipconfig", &["/release"]).disruptive(),
+            Step::run("ipconfig", &["/renew"]).restore(),
+            Step::run("ipconfig", &["/registerdns"]),
+        ];
+        let cancelled = RefCell::new(false);
+        let o = execute_steps(
+            &steps,
+            || *cancelled.borrow(),
+            |i, _, _| {
+                if i == 1 {
+                    *cancelled.borrow_mut() = true;
+                }
+                ok()
+            },
+        );
+        assert_eq!(o.ran, [0, 1]);
+    }
+
+    #[test]
+    fn startfehler_wird_gemeldet() {
+        let steps = vec![Step::run("ipconfig", &["/flushdns"])];
+        let o = execute_steps(&steps, || false, |_, _, _| StepResult { error: Some("weg".into()), ..Default::default() });
+        assert_eq!(o.failed_step, Some(1));
+        assert_eq!(o.error.as_deref(), Some("weg"));
     }
 }

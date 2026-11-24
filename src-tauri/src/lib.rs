@@ -2,13 +2,15 @@
 //!
 //! Module:
 //! * `adapters` – Netzwerkadapter über die Windows-API auslesen
-//! * `runner`   – erlaubte Befehle (ipconfig/ping) ausführen und streamen
+//! * `runner`   – Abläufe (Befehle aus der Whitelist) ausführen und streamen
+//! * `actions`  – die festen Aktionen der Seite "Aktionen" (Aktions-IDs)
 //! * `system`   – Hostname, Admin-Erkennung, Neustart als Admin
 //! * `dns`      – DNS-Abfragen (eigener kleiner Client, wie nslookup)
 //! * `porttest` – TCP-Port-Test
 //! * `tables`   – ARP- und Routing-Tabelle
 //! * `wifi`     – WLAN-Infos (SSID, Signal, Kanal …)
 
+mod actions;
 mod adapters;
 mod dns;
 mod porttest;
@@ -76,6 +78,7 @@ pub fn run() {
             get_route_table,
             get_wifi,
             runner::run_command,
+            runner::run_action,
             runner::cancel_command,
             system::get_hostname,
             system::is_admin,

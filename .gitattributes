@@ -1,0 +1,2 @@
+# ASCII-Titel exakt so lassen (keine CRLF-Umwandlung unter Windows)
+assets/title.txt text eol=lf

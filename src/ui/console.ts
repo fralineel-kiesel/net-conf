@@ -1,5 +1,6 @@
 // Konsolen-Panel unten: zeigt die Live-Ausgabe aller Befehle.
 // Ablauf pro Befehl:  "> ipconfig /renew"  →  Ausgabe  →  "[beendet - Code 0]"
+// Bei Abläufen zusätzlich Schrittmarker: "[1/3] ipconfig /release"
 import { events } from "../events";
 import { copyText, h, prefs } from "./dom";
 import { status } from "./statusbar";
@@ -65,11 +66,19 @@ export function createConsole(): HTMLElement {
     addLine(`> ${e.commandLine}`, "line-cmd");
     body.scrollTop = body.scrollHeight;
   });
+  const multiStep = new Set<number>(); // runIds von Abläufen mit Schritten
+  events.step.on((e) => {
+    multiStep.add(e.runId);
+    addLine(`[${e.index}/${e.total}] ${e.label}${e.recovery ? "   (Wiederherstellung)" : ""}`, "line-step");
+  });
   events.output.on((e) => addLine(e.line, e.stream === "stderr" ? "tag-err" : ""));
   events.finished.on((e) => {
     setRunning(-1);
+    const steps = multiStep.delete(e.runId);
     if (e.cancelled) addLine("[abgebrochen]", "dim");
-    else addLine(`[beendet - Code ${e.exitCode ?? "?"}]`, e.exitCode === 0 ? "dim" : "tag-err");
+    else if (steps && e.failedStep !== null) {
+      addLine(`[fehlgeschlagen in Schritt ${e.failedStep} - Code ${e.exitCode ?? "?"}]`, "tag-err");
+    } else addLine(`[beendet - Code ${e.exitCode ?? "?"}]`, e.exitCode === 0 ? "dim" : "tag-err");
   });
 
   async function copyAll(): Promise<void> {
