@@ -19,11 +19,13 @@
 //! * `connections` – TCP/UDP-Verbindungen mit Prozess (wie netstat -ano)
 //! * `ipprofile` – IP-Profile (netsh) mit Sicherheitsnetz (30 s „Behalten“)
 //! * `winreg`   – kleine Registry-Helfer (nur Windows)
+//! * `desktop`  – Tray-Icon, Kompaktmodus, Autostart, Release-Seite öffnen
 
 mod actions;
 mod adapters;
 mod config;
 mod connections;
+mod desktop;
 mod dns;
 mod icmp;
 mod ipprofile;
@@ -40,7 +42,7 @@ mod wol;
 #[cfg(windows)]
 mod winreg;
 
-use tauri::{Manager, RunEvent};
+use tauri::{Manager, RunEvent, WindowEvent};
 
 /// Liefert alle Netzwerkadapter. `async`, damit der Aufruf nicht den
 /// Hauptthread (und damit das Fenster) blockiert.
@@ -107,8 +109,11 @@ async fn load_config() -> Result<config::LoadResult, String> {
 }
 
 #[tauri::command]
-async fn save_config(config: config::Config) -> Result<config::Config, String> {
-    blocking(move || config::save(&config)).await
+async fn save_config(app: tauri::AppHandle, config: config::Config) -> Result<config::Config, String> {
+    let saved = blocking(move || config::save(&config)).await?;
+    // „In den Tray minimieren“ gilt sofort
+    app.state::<desktop::Desktop>().set_close_to_tray(saved.close_to_tray);
+    Ok(saved)
 }
 
 /// Magic Packet über den gewählten Adapter senden.
@@ -175,6 +180,34 @@ pub fn run() {
         .manage(lan::LanScanner::default())
         .manage(traffic::Traffic::default())
         .manage(ipprofile::IpGuard::default())
+        .manage(desktop::Desktop::default())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            handle.state::<desktop::Desktop>().set_close_to_tray(config::load().config.close_to_tray);
+            // Das Fenster startet unsichtbar (tauri.conf.json: "visible": false).
+            // Mit --tray (Autostart) bleibt es im Tray – aber nur, wenn das Tray-Icon klappt.
+            let tray_ok = match desktop::create_tray(&handle) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("{e}");
+                    false
+                }
+            };
+            let start_in_tray = std::env::args().any(|a| a == "--tray");
+            if !(start_in_tray && tray_ok) {
+                desktop::show_main(&handle);
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Schliessen-Knopf: in den Tray statt beenden (falls eingeschaltet)
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.app_handle().state::<desktop::Desktop>().hide_on_close() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_adapters,
             dns_query,
@@ -215,6 +248,11 @@ pub fn run() {
             ipprofile::ip_profile_apply,
             ipprofile::ip_profile_keep,
             ipprofile::ip_profile_revert,
+            desktop::set_compact,
+            desktop::get_compact,
+            desktop::autostart_get,
+            desktop::autostart_set,
+            desktop::open_release_page,
         ])
         .build(tauri::generate_context!())
         .expect("Net-Conf konnte nicht gestartet werden");
