@@ -8,6 +8,8 @@ import { h, replaceChildren } from "../../ui/dom";
 import { status } from "../../ui/statusbar";
 import { bar, checkbox, copyable, kvRow, panel, prompt, table, tag, tbutton } from "../../ui/widgets";
 import { validateTarget } from "../../validate";
+import { nav } from "../../nav";
+import { registerCommand } from "../../registry";
 
 export function createTracert(): HTMLElement {
   const heading = prompt("");
@@ -180,6 +182,20 @@ export function createTracert(): HTMLElement {
     if (handle) await stop();
     void start();
   }
+
+  nav.startTracert = (target) => void quickStart(target);
+  registerCommand({
+    id: "test.tracert",
+    title: "traceroute <ziel>",
+    category: "TEST",
+    keywords: "tracert route hops",
+    param: { keyword: "traceroute", placeholder: "<ziel>", validate: validateTarget },
+    run: (target) => {
+      nav.show("tests");
+      nav.showTestsTab("tracert");
+      void quickStart(target!.trim());
+    },
+  });
 
   startBtn.addEventListener("click", () => void (handle ? stop() : start()));
   input.addEventListener("input", updateHeading);

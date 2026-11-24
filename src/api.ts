@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { events } from "./events";
 import * as mock from "./mock";
+import { fetchLatestRelease, type ReleaseCheck } from "./update";
 import type {
   ActionId,
   AdapterInfo,
@@ -37,6 +38,9 @@ import type {
   WifiScanResult,
   TrafficSample,
   Connection,
+  AutostartStatus,
+  IpProfileEvent,
+  IpProfilePreview,
 } from "./types";
 
 /** true, wenn wir in der echten Tauri-App laufen. */
@@ -57,6 +61,8 @@ export async function initBackend(): Promise<void> {
     listen<LanHostEvent>("lan-host", (e) => events.lanHost.emit(e.payload)),
     listen<LanProgressEvent>("lan-progress", (e) => events.lanProgress.emit(e.payload)),
     listen<LanFinishedEvent>("lan-finished", (e) => events.lanFinished.emit(e.payload)),
+    listen<IpProfileEvent>("ip-profile", (e) => events.ipProfile.emit(e.payload)),
+    listen<boolean>("compact-changed", (e) => events.compact.emit(e.payload)),
   ]);
 }
 
@@ -180,6 +186,38 @@ export const backend = {
   /** Reverse-DNS für EINE Adresse (nur auf Klick) */
   reverseDns: (address: string): Promise<string | null> =>
     isTauri ? invoke<string | null>("reverse_dns", { address }) : mock.reverseDns(address),
+
+  // ---- Phase 4c: Werkzeuge und Komfort ----
+  /** Was würde das Profil ändern? (für den Bestätigungsdialog) */
+  ipProfilePreview: (name: string): Promise<IpProfilePreview> =>
+    isTauri ? invoke<IpProfilePreview>("ip_profile_preview", { name }) : mock.ipProfilePreview(name),
+
+  /** Profil anwenden – nur der NAME geht ans Backend, das Profil liest es aus config.json */
+  ipProfileApply: (runId: number, name: string): Promise<void> =>
+    isTauri ? invoke<void>("ip_profile_apply", { runId, name }) : mock.ipProfileApply(runId, name),
+
+  ipProfileKeep: (): Promise<void> => (isTauri ? invoke<void>("ip_profile_keep") : mock.ipProfileKeep()),
+
+  ipProfileRevert: (): Promise<void> => (isTauri ? invoke<void>("ip_profile_revert") : mock.ipProfileRevert()),
+
+  /** Kompaktmodus: das Backend schaltet das Fenster um (Grösse, immer im Vordergrund) */
+  setCompact: (enabled: boolean): Promise<boolean> =>
+    isTauri ? invoke<boolean>("set_compact", { enabled }) : mock.setCompact(enabled),
+
+  getCompact: (): Promise<boolean> => (isTauri ? invoke<boolean>("get_compact") : mock.getCompact()),
+
+  autostartGet: (): Promise<AutostartStatus> =>
+    isTauri ? invoke<AutostartStatus>("autostart_get") : mock.autostartGet(),
+
+  autostartSet: (enabled: boolean): Promise<AutostartStatus> =>
+    isTauri ? invoke<AutostartStatus>("autostart_set", { enabled }) : mock.autostartSet(enabled),
+
+  /** Release-Seite im Standardbrowser (Backend erlaubt nur github.com/<repo>/releases…) */
+  openReleasePage: (url: string): Promise<void> =>
+    isTauri ? invoke<void>("open_release_page", { url }) : mock.openReleasePage(url),
+
+  /** Neueste Version bei GitHub (api.github.com, per fetch aus dem WebView – wie ipify) */
+  latestRelease: (): Promise<ReleaseCheck> => (isTauri ? fetchLatestRelease() : mock.latestRelease()),
 
   /** Öffentliche IP über ipify.org – nur auf ausdrücklichen Klick aufrufen! */
   getPublicIp: (): Promise<PublicIp> => (isTauri ? fetchPublicIp() : mock.getPublicIp()),

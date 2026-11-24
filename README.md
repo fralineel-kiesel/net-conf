@@ -14,10 +14,14 @@ und bietet Buttons für häufige Netzwerk-Befehle:
 - **LAN** – Scanner für das eigene Subnetz (IP, Hostname, MAC, Latenz) und **Wake-on-LAN** mit Geräteliste. Gescannt werden nur eigene private Netze bis /22.
 - **WLAN** – aktuelle Verbindung live (Signal, Kanal/Band, Funkstandard, Datenraten) mit Signal-Graph der letzten Minute, Netze in der Umgebung (scannen, nach Signal sortiert), Kanal-Belegung, gespeicherte Profile (verbinden, vergessen) und **Verbinden mit neuen Netzen** (WPA2/WPA3/offen, auch versteckte).
 - **Traffic** – Live-Datenrate eines Adapters (Mbit/s und MB/s, Spitze, Summe, zwei Graphen) und **Verbindungen** mit Prozess (wie `netstat -ano`) mit Filter, Sortierung und Reverse-DNS auf Klick.
-- **Einstellungen** – Akzentfarbe, Standard-Ping-Ziel, Konsolen-Höhe, Start-Ansicht.
+- **Werkzeuge** – **Subnetz-Rechner** (Netz, Broadcast, Maske, Wildcard, Host-Bereich, Klasse/Typ, Binärdarstellung mit Netz-/Hostanteil, Subnetting nach Anzahl oder Hosts, „Liegt IP X im Netz Y?“ – alles offline) und **IP-Profile** (DHCP oder feste IP pro Adapter speichern und per Klick anwenden, mit 30-Sekunden-Sicherheitsnetz).
+- **Befehlspalette** – **Strg+K** öffnet eine Suche über alle Seiten, Aktionen, Tests und Einstellungen. Auch mit Parametern: `ping 1.1.1.1`, `traceroute example.com`, `nslookup example.com`, `wol NAS`, `subnet 10.0.0.0/22`, `profil Labor`.
+- **Einstellungen** – Themes (Cyan, Amber, Phosphor, Papier, Kontrast), Akzentfarbe, Schriftgrösse, Standard-Ping-Ziel, Konsolen-Höhe, Start-Ansicht, Tray und Autostart, Update-Hinweis.
+- **Kompaktmodus** – kleines Fenster (immer im Vordergrund) mit Hostname, IP, Gateway, DNS, Status und Live-Ping zum Gateway und zu 1.1.1.1. Umschalten über [ Kompakt ] in der Kopfzeile, das Tray-Menü oder Strg+K.
+- **Tray** – Symbol im Infobereich mit „Öffnen“, „Kompaktmodus“, „Beenden“; auf Wunsch minimiert das Schliessen in den Tray.
 - **Konsole** – die Rohausgabe aller Befehle live mitlesen.
 
-Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 = nächster Reiter) · **F4** Tabellen · **F6** LAN (nochmal F6 = nächster Reiter) · **F7** WLAN · **F8** Traffic (nochmal F8 = nächster Reiter) · **F10** Einstellungen · **F5** Neu laden.
+Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 = nächster Reiter) · **F4** Tabellen · **F6** LAN (nochmal F6 = nächster Reiter) · **F7** WLAN · **F8** Traffic (nochmal F8 = nächster Reiter) · **F9** Werkzeuge (nochmal F9 = nächster Reiter) · **F10** Einstellungen · **F5** Neu laden · **Strg+K** Befehlspalette · **Strg +/−/0** Schriftgrösse.
 
 ### Hinweise
 
@@ -31,7 +35,10 @@ Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 
 - **WLAN-Namen fehlen?** Ohne Standortzugriff blendet Windows die SSIDs aus (siehe oben).
 - **Traffic und WLAN messen nur, solange die Seite offen ist** – im Hintergrund läuft nichts.
 - **Verbindungen:** Ohne Adminrechte zeigt Windows bei manchen Prozessen nur „(kein Zugriff)“. Prozesse beenden kann Net-Conf bewusst nicht.
-- **Gespeicherte Daten:** Monitor-Ziele und WoL-Geräte liegen in `%APPDATA%\Net-Conf\config.json`. Ist die Datei beschädigt, legt Net-Conf eine Sicherung `config.json.bak` an und startet mit Standardwerten.
+- **IP-Profile:** Anwenden braucht Adminrechte. Vorher zeigt Net-Conf alt → neu und die netsh-Befehle. Danach läuft ein Countdown von 30 s: Nur mit [ Behalten ] bleibt die neue Konfiguration, sonst stellt Net-Conf die vorherige automatisch wieder her (auch beim Beenden der App). Gesichert werden die erste IPv4-Adresse, Maske, Gateway und bis zu zwei DNS-Server; der Adapter wird über seine MAC-Adresse wiedererkannt.
+- **Autostart:** „Mit Windows starten“ trägt Net-Conf unter `HKCU\…\Run` ein (nur für dich, ohne Adminrechte). Der Autostart läuft immer **ohne** Adminrechte und startet minimiert im Tray.
+- **Update-Hinweis:** Net-Conf fragt beim Start (höchstens 1× pro Tag, abschaltbar) die GitHub-Releases-API (`api.github.com`) nach einer neueren Version. Es wird nichts heruntergeladen – ein Klick auf `[UPDATE v…]` öffnet nur die Release-Seite.
+- **Gespeicherte Daten:** Monitor-Ziele, WoL-Geräte, IP-Profile und die Tray-Einstellung liegen in `%APPDATA%\Net-Conf\config.json`. Ist die Datei beschädigt, legt Net-Conf eine Sicherung `config.json.bak` an und startet mit Standardwerten.
 
 Gebaut mit [Tauri v2](https://tauri.app) (Rust) und reinem TypeScript – klein, schnell, ohne Installation lauffähig.
 
@@ -69,7 +76,7 @@ Ergebnis:
 - `src-tauri/target/release/net-conf.exe` (portabel)
 - `src-tauri/target/release/bundle/nsis/*-setup.exe` (Installer)
 
-**Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte; mit `?fail=renew` scheitert jeder Aktions-Schritt mit „renew“ (zum Testen der Fehlermeldungen); mit `?net=dnsfail` (oder `offline`, `apipa`, `nogateway`, `noicmp`) zeigt der Health-Check typische Fehlerfälle; `?wifi=none`, `?wifi=multi` und `?wifi=location` spielen WLAN-Randfälle durch, `?conns=many` liefert über 1000 Verbindungen.
+**Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte; mit `?fail=renew` scheitert jeder Aktions-Schritt mit „renew“ (zum Testen der Fehlermeldungen), mit `?admin=1&fail=address` scheitert das Anwenden eines IP-Profils (sofortige Wiederherstellung); mit `?net=dnsfail` (oder `offline`, `apipa`, `nogateway`, `noicmp`) zeigt der Health-Check typische Fehlerfälle; `?wifi=none`, `?wifi=multi` und `?wifi=location` spielen WLAN-Randfälle durch, `?conns=many` liefert über 1000 Verbindungen; `?update=new` (oder `private`, `offline`, `ratelimit`) simuliert den Update-Check.
 
 **ASCII-Titel neu erzeugen** (nur nötig, wenn er sich ändern soll): `pip install pyfiglet`, dann `python scripts/make-title.py`.
 
@@ -83,16 +90,29 @@ npx tauri icon assets/logo.svg -o src-tauri/icons
 
 (Die erzeugten Ordner `android/` und `ios/` werden nicht gebraucht.)
 
-## Release erstellen
+## Release veröffentlichen
 
-Version in `package.json`, `src-tauri/Cargo.toml` und `src-tauri/tauri.conf.json` erhöhen, committen und einen Tag pushen:
+**1. Version erhöhen** – in `package.json`, `src-tauri/Cargo.toml` und `src-tauri/tauri.conf.json` dieselbe Nummer eintragen (z. B. `0.6.0`), committen und in `main` mergen. Der Workflow bricht ab, wenn Tag und Version nicht zusammenpassen – sonst würde der Update-Hinweis falsch melden.
+
+**2. Release auf GitHub anlegen (Klickpfad):**
+
+1. Repository auf GitHub öffnen → rechts **Releases** → **Draft a new release**.
+2. **Choose a tag** → `v0.6.0` eintippen → **Create new tag: v0.6.0 on publish**. Als **Target** den Branch `main` wählen.
+3. **Release title** z. B. `Net-Conf 0.6.0`. Optional **Generate release notes** klicken.
+4. **Publish release** klicken.
+
+Das Veröffentlichen erstellt den Tag `v0.6.0`. Dadurch startet unter **Actions** der Workflow *Build*: Er baut Net-Conf und hängt `net-conf.exe` und den Installer automatisch an dieses Release (dauert ca. 10–15 Minuten). Tags mit Bindestrich (z. B. `v0.7.0-beta.1`) werden als *Pre-release* markiert und lösen keinen Update-Hinweis aus.
+
+**Alternative per Kommandozeile:**
 
 ```bash
-git tag v0.1.0
+git tag v0.6.0
 ```
 
 ```bash
-git push origin v0.1.0
+git push origin v0.6.0
 ```
 
-GitHub Actions baut dann automatisch und legt ein Release mit beiden `.exe`-Dateien an.
+GitHub Actions legt das Release dann selbst an.
+
+> Hinweis zum Update-Hinweis: Ist das Repository privat, kann die App ohne Anmeldung keine Releases abfragen. Die automatische Prüfung bleibt dann still; „Jetzt prüfen“ meldet „Repository ist privat oder nicht erreichbar“.

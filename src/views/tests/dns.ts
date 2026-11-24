@@ -1,6 +1,8 @@
 // Tests → DNS: Abfrage wie nslookup (eigener DNS-Client im Backend).
 import { backend, errorText } from "../../api";
 import { logToConsole } from "../../commands";
+import { nav } from "../../nav";
+import { registerCommand } from "../../registry";
 import { onStateChange, primaryAdapter } from "../../state";
 import type { DnsRecord, DnsResponse } from "../../types";
 import { h, replaceChildren } from "../../ui/dom";
@@ -123,6 +125,25 @@ export function createDns(): HTMLElement {
     replaceChildren(resultBody, ...parts);
   };
 
+  // Befehlspalette: "nslookup <name>" (Typ und Server wie zuletzt eingestellt)
+  nav.startDns = (name: string) => {
+    nameInput.value = name.trim();
+    updateHeading();
+    void query();
+  };
+  registerCommand({
+    id: "test.nslookup",
+    title: "nslookup <name>",
+    category: "TEST",
+    keywords: "dns abfrage auflösen",
+    param: { keyword: "nslookup", placeholder: "<name>", validate: validateDnsName },
+    run: (name) => {
+      nav.show("tests");
+      nav.showTestsTab("dns");
+      nav.startDns(name!);
+    },
+  });
+
   async function query(): Promise<void> {
     if (busy) return;
     const name = nameInput.value.trim();
@@ -173,4 +194,14 @@ export function createDns(): HTMLElement {
   renderQuick();
   updateHeading();
   return view;
+}
+
+/** Eingabe für "nslookup <name>": Name oder IP (bei PTR). Das Backend prüft verbindlich. */
+function validateDnsName(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return "Bitte einen Namen eingeben, z. B. nslookup example.com";
+  if (t.length > 253) return "Der Name ist zu lang.";
+  if (t.startsWith("-") || t.startsWith(".")) return "Der Name darf nicht mit '-' oder '.' beginnen.";
+  if (!/^[A-Za-z0-9._:-]+$/.test(t)) return "Ungültiger Name. Erlaubt: Buchstaben, Ziffern, Punkt, Bindestrich, Unterstrich, Doppelpunkt.";
+  return null;
 }

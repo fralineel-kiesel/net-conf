@@ -5,14 +5,16 @@ Net-Conf ist ein Netzwerk-Helfer für den Arbeitsalltag unter **Windows 11 (x64)
 Er zeigt die Infos von `ipconfig /all` als Panels, bietet Buttons für häufige
 Netzwerk-Befehle und Diagnose-Werkzeuge (Ping, Traceroute, DNS, Port-Test,
 Health-Check, Ping-Monitor, ARP/Routen, WLAN-Verwaltung, LAN-Scanner, Wake-on-LAN, Live-Traffic,
-Verbindungen/Prozesse). Look: TUI wie htop/btop, aber mit Maus-Bedienung.
+Verbindungen/Prozesse, Subnetz-Rechner, IP-Profile), dazu Befehlspalette (Strg+K), Themes,
+Tray/Kompaktmodus und Update-Hinweis. Look: TUI wie htop/btop, aber mit Maus-Bedienung.
 Der Entwickler ist Informatik-Lehrling (Systemtechnik), kein Rust-Profi:
 Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** kommentieren.
 
 ## Stack
 - **Tauri v2** (Rust-Backend), Vite, **TypeScript ohne Framework** (kein React/Vue/Angular).
-- Rust-Crates bewusst minimal: `tauri`, `serde`, `serde_json`, `windows-sys` (nur Windows).
-  Kein HTTP-/TLS-Crate: HTTPS-Abfragen (öffentliche IP) macht das WebView per `fetch`.
+- Rust-Crates bewusst minimal: `tauri` (Feature `tray-icon`), `serde`, `serde_json`, `windows-sys` (nur Windows).
+  Kein HTTP-/TLS-Crate: HTTPS-Abfragen (öffentliche IP, Update-Check) macht das WebView per `fetch`.
+  Kein Opener-/Autostart-Plugin: Browser öffnen (ShellExecuteW) und Registry (`winreg.rs`) über windows-sys.
 - UI-Sprache: **Deutsch**.
 - Ziel: kleine .exe, wenig RAM, Start < 1 s, keine unnötigen Abhängigkeiten.
 
@@ -21,8 +23,9 @@ Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** komme
 - Der echte Build läuft **nur in GitHub Actions** (`.github/workflows/build.yml`, `windows-latest`).
 - Lokal prüfbar:
   - `npm run build` – Typecheck + Frontend-Build
-  - `npm test` – Tests der Graph-Skalen (Ping + Traffic), der Health-Check-Bewertung und der Phase-4b-Helfer
-    (`scripts/pingscale.test.ts`, `scripts/health.test.ts`, `scripts/traffic.test.ts`, Node ≥ 22, ohne Test-Framework).
+  - `npm test` – Tests der Graph-Skalen (Ping + Traffic), der Health-Check-Bewertung, der Phase-4b-Helfer,
+    des Subnetz-Rechners, der Theme-Kontraste, der Fuzzy-Suche und des Update-Vergleichs
+    (`scripts/*.test.ts`, Node ≥ 22, ohne Test-Framework).
     Kein `constructor(private x)` in Modulen, die Node lädt (Strip-Modus kennt keine Parameter Properties).
     Importe zwischen Modulen, die Node laden soll, mit `.ts`-Endung schreiben (z. B. `health.ts` → `./netutil.ts`).
   - `npm run dev` – UI im Browser mit Mock-Daten (`src/mock.ts` + `src/mock-diag.ts`), `?admin=1` simuliert Adminrechte,
@@ -31,9 +34,13 @@ Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** komme
     `?wifi=none|multi|location` WLAN-Randfälle (kein Adapter / zwei Adapter / Standort aus),
     `?conns=many` 1200 Verbindungen (Grenze 500 Zeilen). WLAN-Mock: Passwort mit „falsch“ = falsches Passwort,
     Netz „Hotspot-Handy“ = Zeitüberschreitung (`src/mock-wifi.ts`).
+    `?admin=1&fail=address` IP-Profil anwenden scheitert (sofortige Wiederherstellung),
+    `?update=new|private|offline|ratelimit` Update-Check (`src/mock-tools.ts`). Kompaktmodus im Browser =
+    Kasten 380×260 (`body.compact-sim`).
   - `cd src-tauri && cargo test` – Rust-Tests (Validierung, Aktions-Abläufe, DNS-Parser, Port-Test, config.json,
     Monitor-Logik, Subnetz-Regeln, MAC/Magic Packet, WLAN-Profil-XML/Escaping, Netze zusammenfassen,
-    Traffic-Raten/Zähler-Reset, TCP-Zustände). Unter Linux braucht das `libwebkit2gtk-4.1-dev`.
+    Traffic-Raten/Zähler-Reset, TCP-Zustände, IP-Profile/netsh-Schritte, Release-URLs).
+    Unter Linux braucht das `libwebkit2gtk-4.1-dev` und (Tray) `libayatana-appindicator3-dev`.
     `cargo test -- --ignored` macht zusätzlich echte DNS-Abfragen (braucht Netz; in der Cloud-Sandbox
     werden nur freigegebene Hosts wie github.com aufgelöst).
   - `cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc` – **typprüft den Windows-Code**
@@ -63,6 +70,9 @@ src-tauri/src/
   monitor.rs   Ping-Monitor im Backend-Thread (Stats, DOWN nach 2 Timeouts, Ausfall-Log, Events)
   lan.rs       LAN-Scanner (SendARP, nur eigenes privates Subnetz ≤ /22), Subnetz-Regeln
   wol.rs       Wake-on-LAN: MAC-Parser, Magic Packet, Broadcast über den gewählten Adapter
+  ipprofile.rs IP-Profile: Prüfung, Adapter per MAC finden, Sicherung, netsh-Schritte, Sicherheitsnetz (IpGuard)
+  desktop.rs   Tray-Icon + Menü, Kompaktmodus (Fenster umschalten), Autostart (HKCU\Run), Release-Seite öffnen
+  winreg.rs    kleine Registry-Helfer (nur Windows): lesen, schreiben, löschen
 src/
   main.ts      Layout, Navigation, Kopfzeile
   api.ts       Brücke zu Tauri – fällt auf mock.ts zurück, wenn keine Tauri-API da ist
@@ -81,13 +91,22 @@ src/
   wifiutil.ts  reine WLAN-Helfer (Kanal-Belegung, Passwort-/SSID-Prüfung als Komfort, Textbalken)
   traffic.ts   reine Traffic-Helfer (Formatierung Mbit/s·MB/s, Filter/Sortierung der Verbindungen)
   mock-wifi.ts Mock für WLAN, Traffic, Verbindungen
+  mock-tools.ts Mock für IP-Profile (inkl. Countdown), Kompaktmodus, Autostart, Update-Check
+  subnet.ts    Subnetz-Rechner (rein, `>>> 0`-Arithmetik, getestet)
+  ipprofile.ts IP-Profile: Formular-Prüfung wie das Backend, Beschreibung, Profil aus Adapter
+  themes.ts    Farb-Themes als Daten + WCAG-Kontrast (getestet), Akzentfarben, Schriftgrössen-Grenzen
+  fuzzy.ts     Fuzzy-Suche der Befehlspalette (rein, getestet)
+  registry.ts  Befehls-Registry der Palette (registerCommand)
+  update.ts    Update-Check: SemVer, Release-URL-Prüfung, API-Antwort auswerten, fetch (rein bis auf fetch)
   views/       overview.ts (ASCII-Titel, SYSTEM, öffentliche IP, WLAN), actions.ts, tables.ts, settings.ts,
                lan.ts (Scanner + Wake-on-LAN), tests.ts (Reiter) + tests/ping.ts, tracert.ts, dns.ts,
-               port.ts, health.ts, monitor.ts, wifi.ts (F7), traffic.ts (Reiter) + traffic/live.ts, connections.ts
+               port.ts, health.ts, monitor.ts, wifi.ts (F7), traffic.ts (Reiter) + traffic/live.ts, connections.ts,
+               tools.ts (F9, Reiter) + tools/subnet.ts, profiles.ts, compact.ts (Kompaktansicht)
   ui/          dom.ts (h()-Helfer, Logo, Clipboard), widgets.ts (TUI-Bausteine),
                statusbar.ts (Rückmeldungen statt Toasts), console.ts, modal.ts,
                latencygraph.ts (Block-Graph auf Canvas für Ping/Traffic/WLAN-Signal, Optionen `unit`,
-               `nullMark`, `zeroEmpty`; `mini: true` = 1 Zeile für den Monitor), admin.ts
+               `nullMark`, `zeroEmpty`; `mini: true` = 1 Zeile für den Monitor), admin.ts,
+               palette.ts (Befehlspalette Strg+K), updates.ts (Update-Prüfung + Statusleisten-Hinweis)
 assets/logo.svg  Quelle des Logos (Icons + Inline-SVG in der Kopfzeile)
 assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 ```
@@ -110,7 +129,12 @@ assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
   nicht über eine Referenz; Speicher immer freigeben (FreeMibTable, WlanFreeMemory, Drop-Guards).
 - Werkzeuge ohne eigenen Prozess protokollieren ihr Ergebnis mit `logToConsole()` in der Konsole.
 - Externe Dienste nie automatisch kontaktieren – die öffentliche IP (ipify.org) nur auf Klick.
+  **Einzige Ausnahme:** der Update-Check (`api.github.com`, nur `releases/latest` des eigenen Repos) –
+  beim Start höchstens 1× pro 24 h, in den Einstellungen abschaltbar (Standard an, so gewünscht).
   Neue externe Hosts müssen in die CSP (`connect-src` in `tauri.conf.json`).
+- URLs öffnet nur das Backend (`open_release_page`) und nur `https://github.com/<owner>/<repo>/releases…`
+  (`desktop::is_release_url`, gespiegelt in `update.isReleaseUrl`). Owner/Repo: `REPO_OWNER/REPO_NAME` in
+  `desktop.rs` und `update.ts` (aus dem Git-Remote `fralineel-kiesel/net-conf`).
 - WLAN ab Windows 11 24H2: SSID/BSSID nur mit Standortzugriff für Desktop-Apps →
   verständlicher Hinweis statt Fehlercode (`wifi::LOCATION_HINT`).
 - Konservativ coden: lieber einfach und sicher kompilierend als clever.
@@ -120,9 +144,28 @@ assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 - Seiten mit Timern (WLAN 2 s, Traffic 1 s, Verbindungen-Auto 2 s) messen **nur, solange sie sichtbar sind**:
   `activate()`/`deactivate()` über `lifecycle` in `main.ts`. Timer als `setTimeout`-Kette mit Generationszähler
   (keine überlappenden Aufrufe, nach dem Verlassen kein Takt mehr).
-- Dauerhafte Daten, die das Backend kennen muss (Monitor-Ziele, WoL-Geräte), in `config.json` über
+- Dauerhafte Daten, die das Backend kennen muss (Monitor-Ziele, WoL-Geräte, IP-Profile, `closeToTray`), in `config.json` über
   `config.rs` – nie direkt schreiben. Beim Speichern streng prüfen, beim Laden Ungültiges verwerfen.
-  Reine Anzeige-Einstellungen bleiben im localStorage (`settings.ts`).
+  Reine Anzeige-Einstellungen (Theme, Akzent, Schriftgrösse, Update-Check an/aus) bleiben im localStorage (`settings.ts`).
+
+### Sicherheitsregeln IP-Profile (Werkzeuge → IP-Profile)
+- Das Frontend schickt beim Anwenden **nur den Profilnamen** (`ip_profile_preview`/`ip_profile_apply`). Das Backend
+  liest das Profil aus config.json, prüft es erneut (`ipprofile::check_profile`) und sucht den Adapter über die
+  gespeicherte **MAC** in der aktuellen Adapterliste (gleiche MAC mehrfach → Name entscheidet; leere MAC → exakter Name).
+- Prüfung: IPs per `Ipv4Addr`-Parsing (keine führenden Nullen), Maske zusammenhängend (`255.255.255.0`, `/24`, `24`,
+  gespeichert immer als Punktnotation), Host-IP nicht Netz-/Broadcast-/Multicast-/Loopback-/0.x/240+-Adresse
+  (/31 und /32 nach RFC 3021 ohne Netz/Broadcast), Gateway im Subnetz und ≠ eigene IP, DNS 2 nur mit DNS 1.
+- netsh in Positionsform, Adaptername als eigenes Argument (wie `adapterRestart`):
+  `netsh interface ipv4 set address "<Name>" static <IP> <Maske> <GW>|gateway=none` bzw. `… dhcp`,
+  `set dnsservers "<Name>" static <DNS1> primary validate=no` + `add dnsservers "<Name>" <DNS2> index=2 validate=no`
+  bzw. `… dhcp` / `static none`. Unveränderte Teile werden übersprungen (`set address … dhcp` scheitert, wenn DHCP schon aktiv ist).
+- **Sicherheitsnetz:** Vor dem Anwenden wird die Konfiguration gesichert (erste IPv4, Maske, erstes Gateway, max. 2 DNS;
+  ob DNS fest eingetragen ist, steht in `HKLM\…\Tcpip\Parameters\Interfaces\{GUID}\NameServer`). Nach dem Anwenden
+  Event `ip-profile` `pending` → 30 s Countdown, nur `ip_profile_keep` behält. Ohne Bestätigung, bei einem gescheiterten
+  Schritt oder beim Beenden der App (`IpGuard::revert_and_wait` im Exit-Handler) stellt **das Backend selbst** wieder her –
+  dafür wird der IST-Zustand neu gelesen, die Rücknahme-Schritte sind `always` (laufen auch nach einem Fehler weiter).
+- Immer nur eine IP-Änderung gleichzeitig (`IpGuard`). Anwenden braucht Admin (Backend prüft `is_admin`), ist [!] mit
+  `confirmDialog({ danger: true })` und zeigt vorher alt → neu + netsh-Befehle (Vorschau vom Backend).
 
 ### Sicherheitsregeln LAN-Scan und Wake-on-LAN
 - **Kein frei wählbarer IP-Bereich.** Das Frontend schickt nur Adaptername + eigene IPv4-Adresse;
@@ -164,6 +207,7 @@ assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 ## Design-Regeln: TUI-Look (wie htop, btop, lazygit)
 Die App soll wie eine Terminal-Oberfläche wirken, bleibt aber per Maus bedienbar.
 **Kein** „KI-Webseiten-Look“ (runde Karten, Glow, Pillen, Punkte, Toggle-Schalter).
+Die Regeln gelten in **jedem** Theme – Themes ändern nur Farben.
 
 Verboten:
 - `border-radius` (überall 0), `box-shadow`, `text-shadow`, Glow, `filter`, Verläufe.
@@ -171,13 +215,21 @@ Verboten:
   **Einzige Ausnahme:** der blinkende Block-Cursor `.cursor` (hart an/aus, `steps(1)`).
 - Pillen-Badges, Toggle-Schalter, Toasts, Web-App-Icons, Status-Punkte.
 - Fettdruck, mehrere Schriftgrössen, Letter-Spacing.
+  (Die eine Schriftgrösse ist einstellbar: 10–20 px, Standard 13, Strg +/−/0 → `--fs`.)
 
-Farben (nur über CSS-Variablen in `src/styles.css`):
+Farben – **nur** über CSS-Variablen (`--bg --bar --line --text --dim --bright --accent --ok --err --warn --backdrop`):
+- Werte stehen in `src/themes.ts` (Cyan = Standard, Amber, Phosphor, Papier, Kontrast); `applySettings()` setzt sie per JS.
+  `:root` in `styles.css` muss exakt Theme „Cyan“ entsprechen (prüft `scripts/theme.test.ts`).
+- Neues Theme: Eintrag in `THEMES` – der Test rechnet nach: Text, Werte, Akzent, ok/err/warn ≥ 4.5:1 auf `--bg`,
+  ok/err ≥ 4.5:1 auf `--bar`, Hover (`--bg` auf `--accent`) ≥ 4.5:1, gedimmt ≥ 3:1.
+- Keine hartkodierten Farben in CSS/TS (Ausnahme: Theme-Vorschau in den Einstellungen und das Logo).
 - Hintergrund fast schwarz `--bg #0b0e12`, Schrift hellgrau `--text`.
 - Labels gedimmt `--dim`, Werte/Titel hell `--bright`.
 - **Eine** Akzentfarbe, Standard Cyan `--accent #22d3ee` – NUR für Interaktives (Hover, Fokus, aktiver Menüpunkt, Auswahl).
-  In den Einstellungen wählbar (Cyan, Bernstein, Magenta, Blau, Weiss) – **nie Grün/Rot**. Das Logo bleibt immer Cyan.
-- Grün `--ok` / Rot `--err` NUR als **Textfarbe für Status-Wörter** (`.tag-ok`, `.tag-err`), nie als Punkt, Linie, Rahmen oder Hintergrund.
+  Im Theme Cyan wählbar (Cyan, Bernstein, Magenta, Blau, Weiss) – **nie Grün/Rot** (Ausnahme: Theme Phosphor ist
+  komplett grün, so gewünscht). Andere Themes bringen ihren Akzent mit. Das Logo bleibt immer Cyan.
+- Grün `--ok` / Rot `--err` / Warnung `--warn` NUR als **Textfarbe für Status-Wörter** (`.tag-ok`, `.tag-err`, `.tag-warn`),
+  nie als Punkt, Linie, Rahmen oder Hintergrund. `--warn` ist im Standard-Theme = `--bright`.
 - Linien: 1px dunkelgrau `--line`. Statusleiste etwas heller (`--bar`).
 
 Bausteine (`src/ui/widgets.ts`) – immer diese verwenden:
@@ -201,7 +253,10 @@ Layout:
 - Kopfzeile: eine Textzeile `[Logo] net-conf @ HOST … [ADMIN]|[USER] [ Neu laden ] (F5)`.
 - Seitenleiste: Textmenü mit `>`-Marker und Tastenkürzeln (siehe Seitenübersicht unten).
 - Hauptbereich, darunter Konsole (gleiches Panel-Design), ganz unten Statusleiste (wie vim/tmux).
-- Schrift: `Cascadia Mono` → `Consolas` → monospace, **13px** überall. **Keine Web-Fonts** (offline!).
+- Schrift: `Cascadia Mono` → `Consolas` → monospace, **eine** Grösse überall (`--fs`, Standard 13px). **Keine Web-Fonts** (offline!).
+- Einheiten: Breiten in `ch`, Höhen über `--lh` (JS: `lineHeightFor(fs)`, 13 → 18 px), Abstände in rem als
+  `calc(12rem / 13)` (= 12px bei 13px Schrift). Kein neues `px` ausser 1px-Linien und Scrollbalken.
+  Canvas-Graphen lesen die Schriftgrösse aus `getComputedStyle`. Browser-Zoom (Strg +/−, Strg+Mausrad) wird abgefangen.
 - Mindestfenster 900×600 muss gut aussehen (Adapter-Panels zweispaltig).
 - Prüfen: Screenshots im Mock-Modus + Audit, das per `getComputedStyle` Rundungen,
   Schatten, Verläufe, Transitions und Grün/Rot als Rahmen/Hintergrund sucht.
@@ -217,10 +272,46 @@ Layout:
 | F6 | LAN | Reiter Scanner · Wake-on-LAN (nochmal F6 = nächster Reiter) |
 | F7 | WLAN | Verbindung (live, Signal-Graph), Netze in der Umgebung, Kanal-Belegung, Profile, Verbinden |
 | F8 | Traffic | Reiter Live · Verbindungen (nochmal F8 = nächster Reiter) |
-| F9 | *(reserviert)* | Werkzeuge |
-| F10 | Einstellungen | Akzentfarbe, Ping-Ziel, Konsole, Start-Ansicht, Speicherorte |
+| F9 | Werkzeuge | Reiter Subnetz · IP-Profile (nochmal F9 = nächster Reiter) |
+| F10 | Einstellungen | Darstellung (Theme, Akzent, Schriftgrösse), Allgemein, Fenster (Tray, Autostart), Updates, Info |
+| Strg+K | Befehlspalette | Suche über Seiten, Aktionen, Tests, Werkzeuge, Einstellungen |
 
 Neue Seite: `ViewId` in `settings.ts`, `NAV` + `views` (+ ggf. `lifecycle`) in `main.ts`, `START_VIEWS` in `views/settings.ts`.
+Seiten aus NAV landen automatisch in der Befehlspalette; Reiter und Funktionen meldet die Seite selbst an (siehe unten).
+
+## Befehlspalette (Strg+K) – Registry
+- `src/registry.ts`: `registerCommand({ id, title, category, hint?, keywords?, param?, visible?, run })`.
+  Kategorien: `SEITE` `AKTION` `TEST` `TOOL` `EINSTELLUNG` (als Tag `[SEITE]` angezeigt). Gleiche `id` ersetzt.
+- **Jede Seite meldet ihre Befehle beim Erzeugen selbst an** (z. B. `views/actions.ts` alle Aktionen, `tests.ts`
+  die Reiter, `lan.ts` „wol“, `tools.ts` „subnet“/„profil“, `views/settings.ts` Themes/Schrift, `main.ts` Seiten).
+- Parameter-Befehle: `param: { keyword: "ping", placeholder: "<ziel>", validate, suggest? }` → Eingabe „ping 1.1.1.1“.
+  `validate` = **dieselbe** Prüfung wie auf der Seite (z. B. `validateTarget`). Vorhanden: `ping`, `traceroute`,
+  `nslookup`, `wol <Gerätename>`, `subnet <ip/cidr>`, `profil <Name>`.
+- `run` muss dieselbe Funktion wie der Button der Seite aufrufen (Aktionen → `onButton(def)`, Profile → `apply()`),
+  also mit Admin-Hinweis und Bestätigungsdialog. Die Palette schliesst sich **vor** `run` – nie an einem Dialog vorbei.
+- Suche: `fuzzy.ts` (Titel: Teilstring oder Teilfolge, Stichwörter nur Teilstring; Akzente egal). Strg+K ist gesperrt,
+  solange ein Dialog offen ist; F-Tasten sind gesperrt, solange die Palette offen ist.
+
+## Tray, Kompaktmodus, Autostart (desktop.rs)
+- Tray-Icon (App-Icon) mit Menü „Öffnen“, „Kompaktmodus“, „Beenden“; Linksklick zeigt das Fenster.
+- Fenster startet unsichtbar (`"visible": false`) und wird im `setup` gezeigt – ausser mit `--tray` (Autostart),
+  und nur, wenn das Tray-Icon angelegt werden konnte (sonst wäre die App unerreichbar).
+- „Beim Schliessen in den Tray minimieren“ (`closeToTray` in config.json, Standard aus): `CloseRequested` → verstecken.
+- Kompaktmodus: **ein** Fenster wird umgeschaltet (`set_compact`): 380×260 logisch, immer im Vordergrund, Mindestgrösse
+  300×200; vorher Position/Grösse/Maximiert merken und beim Zurückschalten wiederherstellen. Event `compact-changed`
+  → `body.compact` blendet Seitenleiste/Konsole aus, `views/compact.ts` pingt (ICMP) Gateway + 1.1.1.1 alle 2 s,
+  nur solange aktiv. Die verdeckte Seite wird per `lifecycle` pausiert. „Seite zeigen“ beendet den Kompaktmodus.
+- Autostart: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, Wert „Net-Conf“ = `"<exe>" --tray` (Pfad baut nur
+  das Backend). Kein Admin nötig; Hinweis im UI: Autostart läuft immer **ohne** Adminrechte.
+
+## Update-Hinweis
+- `update.ts`: `fetchLatestRelease()` → `GET https://api.github.com/repos/<owner>/<repo>/releases/latest` per fetch
+  (wie ipify), Auswertung `interpretRelease()`, Vergleich `isNewer()` (SemVer inkl. Vorabversionen), getestet.
+- `ui/updates.ts`: beim Start (Einstellung „Beim Start nach Updates suchen“, Standard an) höchstens 1× pro 24 h,
+  Fehler still; „Jetzt prüfen“ zeigt verständliche Meldungen (404 → „Repository ist privat oder nicht erreichbar“).
+  Neuere Version → Statusleiste `[UPDATE v0.x.y]` (klickbar, bleibt gemerkt) → `open_release_page`. Kein Download.
+- Release: Tag `v*` → Workflow prüft, dass der Tag zu allen drei Versionsnummern passt, baut und hängt die .exe an;
+  Tags mit `-` (z. B. `v0.7.0-beta.1`) werden Pre-release. Klickpfad steht im README („Release veröffentlichen“).
 
 ## Diagnose (Phase 4a)
 - **Health-Check** (Tests → Health): 6 Stufen nacheinander – Adapter mit Gateway, IPv4 ohne APIPA,
@@ -347,13 +438,14 @@ Regeln:
   Ping-Monitor im Hintergrund, LAN-Scanner (F6) mit Reverse-DNS, Wake-on-LAN mit Ping-Check.
 - **Phase 4b (fertig, v0.5.0):** WLAN-Seite (F7) mit Scan, Kanal-Belegung, Profilen, Verbinden/Trennen/Vergessen;
   Traffic-Seite (F8) mit Live-Raten und Verbindungen/Prozessen.
+- **Phase 4c (fertig, v0.6.0):** Werkzeuge (F9) mit Subnetz-Rechner und IP-Profilen (Sicherheitsnetz),
+  Befehlspalette (Strg+K) mit Registry, Themes + Schriftgrösse, Tray + Kompaktmodus + Autostart, Update-Hinweis.
 - **Ideen für später (NICHT bauen ohne Auftrag):**
-  - F9 Werkzeuge (Inhalt noch offen)
+  - IP-Profile: mehrere IPv4-Adressen/Gateways und IPv6 sichern/setzen
   - Traffic: Verlauf pro Prozess (bräuchte ETW – deutlich aufwendiger)
   - WLAN: OWE/WPA3-Übergangsmodus gezielt unterstützen, 802.1X bewusst nicht
   - Hersteller zur MAC (OUI) im LAN-Scanner: nur mit kompakter eingebetteter Tabelle (< 300 KB);
     die volle IEEE-Liste ist deutlich grösser – daher in 4a weggelassen
   - IPv6 im ICMP-Modul (Icmp6SendEcho2) für Monitor/Health
   - Speed-/Latenz-Langzeitmessung mit Export (CSV)
-  - DNS-Server/IP per Klick setzen (netsh, braucht Admin)
   - Ergebnisse als Text für Tickets exportieren

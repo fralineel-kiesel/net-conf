@@ -4,6 +4,8 @@
 // Die Live-Messung läuft, solange die Seite offen ist (egal welcher Reiter),
 // und stoppt beim Verlassen. Die Auto-Aktualisierung der Verbindungen läuft
 // nur, solange deren Reiter sichtbar ist.
+import { nav } from "../nav";
+import { registerCommands } from "../registry";
 import { h, prefs } from "../ui/dom";
 import { tabs } from "../ui/widgets";
 import { createConnections } from "./traffic/connections";
@@ -40,6 +42,18 @@ export function createTraffic(): TrafficView {
     else conns.deactivate();
   };
   const bar = tabs(TABS, tab, show);
+  registerCommands(
+    TABS.map((t) => ({
+      id: `tab.traffic.${t.value}`,
+      title: `Traffic: ${t.label}`,
+      category: "SEITE" as const,
+      hint: "F8",
+      run: () => {
+        nav.show("traffic");
+        show(t.value);
+      },
+    })),
+  );
   const el = h("section", { class: "view", "data-view": "traffic" }, bar.el, live.el, conns.el);
   show(tab);
 

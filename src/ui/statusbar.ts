@@ -3,6 +3,7 @@
 // Rechts: letzte Rückmeldung (z. B. "kopiert: 192.168.1.42") und Admin-Status.
 // Läuft der Ping-Monitor, steht links zusätzlich "Monitor: 4 Ziele, 1 DOWN".
 // Ersetzt die früheren Toasts.
+// Phase 4c: Hinweis "Strg+K Befehle" und – falls vorhanden – "[UPDATE v0.x.y]" (klickbar).
 import { onStateChange, state } from "../state";
 import { h } from "./dom";
 
@@ -31,6 +32,19 @@ export function setMonitorSummary(s: { total: number; down: number } | null): vo
   );
 }
 
+const updateEl = h("span", { class: "sb-update" });
+updateEl.hidden = true;
+
+/** Update-Hinweis setzen (null = ausblenden). Klick öffnet die Release-Seite. */
+export function setUpdateIndicator(u: { text: string; onclick: () => void } | null): void {
+  updateEl.hidden = u === null;
+  if (!u) return updateEl.replaceChildren();
+  updateEl.replaceChildren(
+    h("span", { class: "sb-sep" }, " │ "),
+    h("button", { class: "value sb-link", type: "button", title: "Release-Seite im Browser öffnen", onclick: u.onclick }, u.text),
+  );
+}
+
 export function createStatusbar(): HTMLElement {
   const left = h("span", { class: "sb-left" });
   const admin = h("span", { class: "sb-admin" });
@@ -45,6 +59,8 @@ export function createStatusbar(): HTMLElement {
       state.loading && total === 0 ? "lade …" : `${total} Adapter`,
       sep(),
       `${hidden} ausgeblendet`,
+      sep(),
+      h("span", { class: "dim sb-hint" }, "Strg+K Befehle"),
     );
     admin.textContent = state.isAdmin ? "[ADMIN]" : "[USER]";
     admin.className = `sb-admin ${state.isAdmin ? "tag-ok" : ""}`;
@@ -52,5 +68,5 @@ export function createStatusbar(): HTMLElement {
   onStateChange(render);
   render();
 
-  return h("footer", { class: "statusbar" }, left, monitorEl, h("span", { class: "spacer" }), msgEl, sep(), admin);
+  return h("footer", { class: "statusbar" }, left, monitorEl, updateEl, h("span", { class: "spacer" }), msgEl, sep(), admin);
 }

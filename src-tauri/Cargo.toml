@@ -1,6 +1,6 @@
 [package]
 name = "net-conf"
-version = "0.5.0"
+version = "0.6.0"
 description = "Net-Conf – Netzwerk-Helfer für Windows 11"
 authors = ["Net-Conf"]
 edition = "2021"
@@ -16,7 +16,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# "tray-icon": Tray-Symbol mit Menü (Teil von Tauri, kein fremdes Crate im Code)
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -31,6 +32,7 @@ features = [
   "Win32_NetworkManagement_WiFi",
   "Win32_Networking_WinSock",
   "Win32_Security",
+  "Win32_System_Registry",
   "Win32_System_Threading",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",

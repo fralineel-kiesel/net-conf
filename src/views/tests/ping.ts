@@ -10,6 +10,7 @@ import { createLatencyGraph } from "../../ui/latencygraph";
 import { status } from "../../ui/statusbar";
 import { choice, kvRow, panel, prompt, tag, tbutton } from "../../ui/widgets";
 import { nav } from "../../nav";
+import { registerCommand } from "../../registry";
 import { onSettingsChange, settings } from "../../settings";
 import { PING_COUNTS } from "../../types";
 import { validateTarget } from "../../validate";
@@ -232,6 +233,18 @@ export function createPing(): HTMLElement {
 
   // Andere Ansichten (LAN-Scanner) können hierher springen und ein Ziel anpingen
   nav.startPing = (target) => void quickPing(target);
+  registerCommand({
+    id: "test.ping",
+    title: "ping <ziel>",
+    category: "TEST",
+    keywords: "ping test erreichbar",
+    param: { keyword: "ping", placeholder: "<ziel>", validate: validateTarget },
+    run: (target) => {
+      nav.show("tests");
+      nav.showTestsTab("ping");
+      void quickPing(target!.trim());
+    },
+  });
 
   onStateChange(renderQuick);
   renderQuick();

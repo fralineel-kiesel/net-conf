@@ -2,7 +2,10 @@
    Net-Conf – TUI-Look (wie htop / btop / lazygit), mit Maus bedienbar.
 
    Regeln (siehe auch CLAUDE.md):
-   - EINE Schriftgrösse (13px), kein Fettdruck, kein Letter-Spacing.
+   - EINE Schriftgrösse (Standard calc(13rem / 13), einstellbar 10–20 über --fs), kein Fettdruck,
+     kein Letter-Spacing. Abstände in rem (bei calc(13rem / 13) = alte px-Werte: calc(12rem / 13) = calc(12rem / 13)),
+     Breiten in ch, Höhen über --lh – so skaliert alles mit der Schrift.
+   - Farben NUR über die Variablen unten. Themes (src/themes.ts) überschreiben sie per JS.
      Hierarchie nur über Helligkeit und GROSSBUCHSTABEN.
    - Keine Rundungen, keine Schatten/Glow, keine Verläufe, keine Transitions.
      Einzige Animation: der blinkende Block-Cursor (.cursor), hart an/aus.
@@ -22,8 +25,11 @@
   --accent: #22d3ee; /* Cyan – nur Interaktives */
   --ok: #4ade80; /* nur Text */
   --err: #f87171; /* nur Text */
+  --warn: #eef2f6; /* nur Text (Standard: wie --bright) */
+  --backdrop: rgba(0, 0, 0, 0.65); /* hinter Dialogen */
+  --fs: 13px; /* Schriftgrösse (Strg +/-/0) */
   --font: "Cascadia Mono", "Cascadia Code", Consolas, "Lucida Console", ui-monospace, monospace;
-  --lh: 18px; /* Zeilenhöhe = Raster */
+  --lh: 18px; /* Zeilenhöhe = Raster (JS setzt sie passend zu --fs) */
   color-scheme: dark;
 }
 
@@ -43,7 +49,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: var(--fs);
   line-height: var(--lh);
 }
 
@@ -111,6 +117,9 @@ p {
 .tag-plain {
   color: var(--text);
 }
+.tag-warn {
+  color: var(--warn);
+}
 
 /* ---------- Grundlayout ---------------------------------------------------- */
 
@@ -132,7 +141,7 @@ p {
   display: flex;
   align-items: center;
   gap: 1ch;
-  height: 28px;
+  height: calc(28rem / 13);
   padding: 0 1ch;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
@@ -142,13 +151,13 @@ p {
 }
 .logo {
   display: inline-flex;
-  width: 16px;
-  height: 16px;
+  width: calc(16rem / 13);
+  height: calc(16rem / 13);
   flex: none;
 }
 .logo svg {
-  width: 16px;
-  height: 16px;
+  width: calc(16rem / 13);
+  height: calc(16rem / 13);
   display: block;
 }
 
@@ -157,18 +166,18 @@ p {
   grid-area: side;
   display: flex;
   flex-direction: column;
-  padding: 8px 0;
+  padding: calc(8rem / 13) 0;
   border-right: 1px solid var(--line);
   user-select: none;
 }
 .menu-title {
   color: var(--dim);
-  padding: 0 1ch 4px;
+  padding: 0 1ch calc(4rem / 13);
 }
 .menu-item {
   display: flex;
   width: 100%;
-  padding: 2px 1ch;
+  padding: calc(2rem / 13) 1ch;
   background: none;
   border: 0;
   color: var(--text);
@@ -202,7 +211,7 @@ p {
 .main {
   grid-area: main;
   overflow: auto;
-  padding: 12px 2ch 16px;
+  padding: calc(12rem / 13) 2ch calc(16rem / 13);
 }
 
 /* Statusleiste ganz unten (wie vim/tmux) */
@@ -210,7 +219,7 @@ p {
   grid-area: status;
   display: flex;
   align-items: center;
-  height: 22px;
+  height: calc(22rem / 13);
   padding: 0 1ch;
   background: var(--bar);
   color: var(--text);
@@ -240,7 +249,7 @@ p {
 
 .prompt {
   color: var(--bright);
-  margin-bottom: 12px;
+  margin-bottom: calc(12rem / 13);
   overflow-wrap: anywhere;
 }
 .prompt-sign {
@@ -262,7 +271,7 @@ p {
 .panel {
   position: relative;
   border: 1px solid var(--line);
-  padding: 12px 1ch 8px;
+  padding: calc(12rem / 13) 1ch calc(8rem / 13);
   margin-top: calc(var(--lh) / 2); /* Platz für den Titel über der Linie */
   min-width: 0;
 }
@@ -295,27 +304,27 @@ p {
   right: 1ch;
 }
 .panel-actions {
-  margin-top: 8px;
+  margin-top: calc(8rem / 13);
 }
 
 /* Raster für mehrere Panels – gleiche Höhe pro Reihe, keine Lücken */
 .panel-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 45ch), 1fr));
-  gap: 12px 2ch;
+  gap: calc(12rem / 13) 2ch;
   align-items: stretch;
 }
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: calc(12rem / 13);
 }
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 1ch 3ch;
-  margin-bottom: 4px;
+  margin-bottom: calc(4rem / 13);
 }
 
 /* Zeile "Label . . . . : Wert" */
@@ -355,7 +364,7 @@ p {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  margin-bottom: 4px;
+  margin-bottom: calc(4rem / 13);
 }
 
 /* Klickbarer Wert: Hover invertiert (wie Textmarkierung) */
@@ -508,10 +517,10 @@ p {
   container: overview / inline-size;
 }
 .title-block {
-  margin-bottom: 12px;
+  margin-bottom: calc(12rem / 13);
 }
 .title-block > p {
-  margin-top: 4px;
+  margin-top: calc(4rem / 13);
 }
 .ascii-title {
   margin: 0;
@@ -537,8 +546,8 @@ p {
 .top-grid {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 12px 2ch;
-  margin-bottom: 20px;
+  gap: calc(12rem / 13) 2ch;
+  margin-bottom: calc(20rem / 13);
 }
 @container overview (max-width: 84ch) {
   .top-grid {
@@ -553,14 +562,14 @@ p {
 /* ---------- Aktionen ------------------------------------------------------- */
 
 .note {
-  margin: 8px 0 4px;
+  margin: calc(8rem / 13) 0 calc(4rem / 13);
 }
 /* Tabellenzeilen: [ Button ] | Status/Tags | Befehl/Ablauf | Beschreibung.
    --btn-w setzt actions.ts (längster Titel), damit alle Spalten untereinander stehen. */
 .action-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: calc(8rem / 13);
   container-type: inline-size;
 }
 .action-row {
@@ -583,7 +592,7 @@ p {
   white-space: nowrap;
 }
 .action-hint {
-  margin-bottom: 8px;
+  margin-bottom: calc(8rem / 13);
 }
 /* Normal: Beschreibung steht unter dem Befehl (gleiche Spalte).
    Breites Fenster: Beschreibung als eigene vierte Spalte. */
@@ -607,13 +616,13 @@ p {
 /* ---------- Phase 2: Reiter, Tabellen, Kleinteile ------------------------- */
 
 .menu-sep {
-  margin: 6px 1ch;
+  margin: calc(6rem / 13) 1ch;
   border-top: 1px solid var(--line);
 }
 
 /* Reiter: "[Ping] │ Traceroute │ DNS" */
 .ttabs {
-  margin-bottom: 12px;
+  margin-bottom: calc(12rem / 13);
   white-space: pre;
 }
 .ttab {
@@ -653,14 +662,14 @@ p {
   text-align: right;
 }
 .tempty {
-  padding-top: 2px;
+  padding-top: calc(2rem / 13);
 }
 
 .accent-text {
   color: var(--accent);
 }
 .spacer-line {
-  height: 8px;
+  height: calc(8rem / 13);
 }
 .wrap {
   white-space: normal;
@@ -745,8 +754,8 @@ p {
 .console {
   grid-area: console;
   /* oben Platz für den Titel in der Linie – sonst ragt er in den Hauptbereich */
-  margin: calc(var(--lh) / 2 + 4px) 2ch 8px;
-  padding-bottom: 4px;
+  margin: calc(var(--lh) / 2 + calc(4rem / 13)) 2ch calc(8rem / 13);
+  padding-bottom: calc(4rem / 13);
 }
 .console-body {
   /* Höhe in Zeilen, einstellbar unter "Einstellungen" (--console-lines) */
@@ -758,7 +767,7 @@ p {
   word-break: break-word;
 }
 .console.collapsed {
-  padding: 6px 1ch 0;
+  padding: calc(6rem / 13) 1ch 0;
 }
 .console.collapsed .console-body {
   display: none;
@@ -779,11 +788,11 @@ p {
   z-index: 100;
   display: grid;
   place-items: center;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--backdrop);
 }
 .dialog {
   width: min(64ch, calc(100vw - 4ch));
-  padding: 14px 2ch 10px;
+  padding: calc(14rem / 13) 2ch calc(10rem / 13);
   background: var(--bg);
   border-color: var(--text);
 }
@@ -848,9 +857,6 @@ p {
   width: 16ch;
   white-space: pre;
 }
-.health-tag.bright .tag {
-  color: var(--bright);
-}
 .health-hint {
   padding-left: 16ch;
 }
@@ -907,7 +913,7 @@ p {
   align-items: flex-start;
 }
 .trow + .trow:has(.cell-lines) {
-  margin-top: 4px;
+  margin-top: calc(4rem / 13);
 }
 
 /* ---------- Phase 4b: WLAN, Traffic, Verbindungen -------------------------- */
@@ -969,7 +975,7 @@ p {
 }
 .band-head {
   color: var(--dim);
-  margin-top: 4px;
+  margin-top: calc(4rem / 13);
 }
 .band-head:first-child {
   margin-top: 0;
@@ -992,7 +998,7 @@ p {
 .traffic-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px 2ch;
+  gap: calc(12rem / 13) 2ch;
 }
 /* Nebeneinander nur bei sehr breitem Fenster – sonst wären die Graphen zu kurz */
 @container traffic (max-width: 170ch) {
@@ -1011,4 +1017,187 @@ p {
 /* Zweite Zeile (z. B. aufgelöster Name) nie breiter als die Spalte */
 .cell-lines > .ellipsis {
   max-width: 100%;
+}
+
+/* ---------- Phase 4c: Werkzeuge, Befehlspalette, Kompaktmodus -------------- */
+
+/* Binärdarstellung: nie umbrechen (32 Bit + Punkte) */
+.bin {
+  white-space: pre;
+}
+.tinput-tiny {
+  width: 8ch;
+}
+/* Buttonreihe darf umbrechen (schmale Fenster) */
+.wrap-actions {
+  flex-wrap: wrap;
+  white-space: normal;
+  row-gap: calc(4rem / 13);
+}
+.panel-actions.row-actions {
+  display: flex;
+  gap: 1ch 2ch;
+}
+.tinput:disabled {
+  color: var(--dim);
+  border-bottom-style: dotted;
+}
+/* Dialogtexte dürfen Zeilenumbrüche enthalten (Zusammenfassung alt → neu) */
+.dialog p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Theme-Auswahl: (*) Name | Vorschauzeile in den Farben des Themes | Beschreibung */
+.theme-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4rem / 13);
+}
+.theme-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 2ch;
+}
+.theme-preview {
+  white-space: pre;
+  border: 1px solid;
+}
+.statusbar .sb-link {
+  color: var(--accent);
+  word-break: normal;
+}
+.sb-update {
+  flex: none;
+}
+
+/* Befehlspalette (Strg+K): Panel oben mittig, Trefferliste darunter */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--backdrop);
+}
+.palette {
+  position: absolute;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(84ch, calc(100vw - 4ch));
+  margin-top: 0;
+  padding: calc(14rem / 13) 2ch calc(8rem / 13);
+  background: var(--bg);
+  border-color: var(--text);
+}
+.palette-line {
+  display: flex;
+  white-space: pre;
+  margin-bottom: calc(8rem / 13);
+}
+.palette-input {
+  flex: 1;
+  width: auto;
+}
+.palette-list {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(var(--lh) * 12);
+  overflow-y: auto;
+}
+.pal-item {
+  display: grid;
+  grid-template-columns: 14ch minmax(0, 1fr) auto;
+  column-gap: 1ch;
+  padding: 0 1ch;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pal-cat {
+  color: var(--dim);
+  white-space: pre;
+}
+.pal-label {
+  color: var(--bright);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pal-hint {
+  color: var(--dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 40ch;
+}
+.pal-item.selected,
+.pal-item.selected .pal-cat,
+.pal-item.selected .pal-label,
+.pal-item.selected .pal-hint {
+  background: var(--accent);
+  color: var(--bg);
+}
+.palette-msg {
+  margin-top: calc(8rem / 13);
+  overflow-wrap: anywhere;
+}
+.palette-empty {
+  padding: 0 1ch;
+}
+.pal-hint.tag-err {
+  color: var(--err);
+}
+
+/* Kompaktmodus: nur Kopfzeile, Kompakt-Ansicht und Statusleiste */
+.compact-view {
+  display: none;
+}
+body.compact #app {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "top"
+    "main"
+    "status";
+}
+body.compact .sidebar,
+body.compact .console,
+body.compact .hide-compact,
+body.compact .sb-left,
+body.compact .sb-monitor {
+  display: none;
+}
+body.compact .main {
+  padding: calc(2rem / 13) 1ch calc(4rem / 13);
+}
+body.compact .main > .view:not(.compact-view) {
+  display: none !important;
+}
+body.compact .compact-view {
+  display: block;
+}
+/* Mock im Browser: Fenstergrösse des Kompaktmodus als Kasten */
+body.compact-sim #app {
+  width: 380px;
+  height: 260px;
+  border: 1px solid var(--line);
+}
+.compact-view .panel {
+  padding-bottom: calc(4rem / 13);
+}
+.compact-ping {
+  display: grid;
+  grid-template-columns: 8ch 6ch minmax(0, 1fr);
+  column-gap: 1ch;
+  align-items: center;
+}
+.compact-ms {
+  text-align: right;
+  white-space: pre;
+}
+.compact-actions {
+  margin-top: calc(4rem / 13);
 }

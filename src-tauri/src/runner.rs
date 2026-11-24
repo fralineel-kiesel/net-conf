@@ -67,6 +67,10 @@ pub struct Step {
     /// aktivieren). Läuft AUCH nach einem Fehler oder Abbruch – aber nur, wenn
     /// vorher ein `disruptive`-Schritt lief. Sonst stünde man ohne Netz da.
     pub restore: bool,
+    /// Läuft auch dann, wenn ein früherer Schritt gescheitert ist (nicht aber
+    /// nach einem Abbruch). Für Wiederherstellungs-Abläufe, bei denen jeder
+    /// Schritt für sich zählt (IP-Profile: Adresse UND DNS zurücksetzen).
+    pub always: bool,
 }
 
 impl Step {
@@ -75,6 +79,7 @@ impl Step {
             kind: StepKind::Run { program, args: args.iter().map(|a| a.to_string()).collect() },
             disruptive: false,
             restore: false,
+            always: false,
         }
     }
 
@@ -89,7 +94,12 @@ impl Step {
     }
 
     pub fn wait(ms: u64) -> Step {
-        Step { kind: StepKind::Wait { ms }, disruptive: false, restore: false }
+        Step { kind: StepKind::Wait { ms }, disruptive: false, restore: false, always: false }
+    }
+
+    /// Programm mit fertiger Argumentliste (jedes Element ein eigenes Argument).
+    pub fn run_args(program: &'static str, args: Vec<String>) -> Step {
+        Step { kind: StepKind::Run { program, args }, disruptive: false, restore: false, always: false }
     }
 
     pub fn disruptive(mut self) -> Step {
@@ -99,6 +109,11 @@ impl Step {
 
     pub fn restore(mut self) -> Step {
         self.restore = true;
+        self
+    }
+
+    pub fn always(mut self) -> Step {
+        self.always = true;
         self
     }
 
@@ -166,6 +181,7 @@ struct Outcome {
 /// * Bei Abbruch ebenso.
 /// * Ausnahme: `restore`-Schritte laufen trotzdem, wenn vorher ein
 ///   `disruptive`-Schritt lief (renew nach release, aktivieren nach deaktivieren).
+/// * `always`-Schritte laufen nach einem Fehler weiter (nicht nach Abbruch).
 ///
 /// `run(index, step, recovery)` führt einen Schritt aus; `recovery = true`
 /// heisst: läuft nur noch zur Wiederherstellung.
@@ -180,8 +196,11 @@ where
     let mut out = Outcome::default();
 
     for (i, step) in steps.iter().enumerate() {
-        let stopping = cancelled() || failed.is_some();
-        if stopping && !(step.restore && dirty) {
+        let cancel = cancelled();
+        let stopping = cancel || failed.is_some();
+        let recover = step.restore && dirty;
+        let skip = if cancel { !recover } else { failed.is_some() && !(recover || step.always) };
+        if skip {
             continue;
         }
         if step.disruptive {
@@ -336,6 +355,41 @@ pub fn cancel_command(runner: State<'_, Runner>, run_id: u32) -> Result<(), Stri
 }
 
 fn start_plan(app: AppHandle, runner: &Runner, run_id: u32, plan: Plan) -> Result<(), String> {
+    let running = register_plan(runner, run_id, &plan)?;
+    // Der ganze Ablauf läuft in einem eigenen Thread – das Fenster bleibt bedienbar.
+    std::thread::spawn(move || {
+        execute_plan(&app, run_id, &running, &plan);
+    });
+    Ok(())
+}
+
+/// Ergebnis eines Ablaufs (für Module, die selbst auf das Ende warten, z. B. IP-Profile).
+#[derive(Debug, Clone)]
+pub struct PlanResult {
+    pub exit_code: Option<i32>,
+    pub cancelled: bool,
+    pub failed_step: Option<u32>,
+    pub error: Option<String>,
+}
+
+impl PlanResult {
+    /// Alle Schritte erfolgreich und nicht abgebrochen?
+    pub fn ok(&self) -> bool {
+        !self.cancelled && self.failed_step.is_none() && self.error.is_none() && self.exit_code == Some(0)
+    }
+}
+
+/// Wie `start_plan`, aber blockierend: kehrt erst nach dem letzten Schritt
+/// zurück. Nur aus einem eigenen Thread aufrufen (nie aus dem Hauptthread)!
+/// Konsolen-Events (`cmd-*`) gehen genauso ans Frontend wie bei Aktionen.
+pub fn run_plan_blocking(app: &AppHandle, run_id: u32, plan: Plan) -> Result<PlanResult, String> {
+    use tauri::Manager;
+    let running = register_plan(&app.state::<Runner>(), run_id, &plan)?;
+    Ok(execute_plan(app, run_id, &running, &plan))
+}
+
+/// Programme prüfen und den Ablauf im Runner eintragen (für Abbruch/Beenden).
+fn register_plan(runner: &Runner, run_id: u32, plan: &Plan) -> Result<Arc<Running>, String> {
     // Programmpfade vorab prüfen – ein nicht verfügbares Programm fällt so
     // sofort auf und nicht erst mitten im Ablauf.
     for step in &plan.steps {
@@ -343,59 +397,61 @@ fn start_plan(app: AppHandle, runner: &Runner, run_id: u32, plan: Plan) -> Resul
             program_path(program)?;
         }
     }
-
     let running = Arc::new(Running { child: Mutex::new(None), cancels: AtomicU32::new(0) });
-    {
-        let mut map = runner.map();
-        if map.contains_key(&run_id) {
-            return Err("Interner Fehler: runId wird bereits verwendet.".into());
-        }
-        map.insert(run_id, running.clone());
+    let mut map = runner.map();
+    if map.contains_key(&run_id) {
+        return Err("Interner Fehler: runId wird bereits verwendet.".into());
     }
+    map.insert(run_id, running.clone());
+    Ok(running)
+}
 
+/// Führt einen eingetragenen Ablauf aus und sendet alle Events (läuft im aufrufenden Thread).
+fn execute_plan(app: &AppHandle, run_id: u32, running: &Running, plan: &Plan) -> PlanResult {
     let _ = app.emit("cmd-started", StartedEvent { run_id, command_line: plan.title.clone() });
-
-    // Der ganze Ablauf läuft in einem eigenen Thread – das Fenster bleibt bedienbar.
-    std::thread::spawn(move || {
-        let total = plan.steps.len() as u32;
-        let outcome = execute_steps(
-            &plan.steps,
-            || running.cancels() > 0,
-            |i, step, recovery| {
-                // Schrittmarker nur bei echten Abläufen, nicht bei einem einzelnen Ping
-                if total > 1 {
-                    let _ = app.emit(
-                        "cmd-step",
-                        StepEvent { run_id, index: i as u32 + 1, total, label: step.label(), recovery },
-                    );
+    let total = plan.steps.len() as u32;
+    let outcome = execute_steps(
+        &plan.steps,
+        || running.cancels() > 0,
+        |i, step, recovery| {
+            // Schrittmarker nur bei echten Abläufen, nicht bei einem einzelnen Ping
+            if total > 1 {
+                let _ = app.emit(
+                    "cmd-step",
+                    StepEvent { run_id, index: i as u32 + 1, total, label: step.label(), recovery },
+                );
+            }
+            match &step.kind {
+                StepKind::Wait { ms } => {
+                    sleep_cancellable(*ms, running);
+                    StepResult { code: Some(0), ..Default::default() }
                 }
-                match &step.kind {
-                    StepKind::Wait { ms } => {
-                        sleep_cancellable(*ms, &running);
-                        StepResult { code: Some(0), ..Default::default() }
-                    }
-                    StepKind::Run { program, args } => run_process(&app, run_id, &running, program, args),
-                }
-            },
-        );
-        let cancelled = running.cancels() > 0;
-        {
-            use tauri::Manager;
-            app.state::<Runner>().map().remove(&run_id);
-        }
-        let _ = app.emit(
-            "cmd-finished",
-            FinishedEvent {
-                run_id,
-                exit_code: outcome.exit_code,
-                cancelled,
-                failed_step: outcome.failed_step,
-                error: outcome.error,
-            },
-        );
-    });
-
-    Ok(())
+                StepKind::Run { program, args } => run_process(app, run_id, running, program, args),
+            }
+        },
+    );
+    let cancelled = running.cancels() > 0;
+    {
+        use tauri::Manager;
+        app.state::<Runner>().map().remove(&run_id);
+    }
+    let result = PlanResult {
+        exit_code: outcome.exit_code,
+        cancelled,
+        failed_step: outcome.failed_step,
+        error: outcome.error,
+    };
+    let _ = app.emit(
+        "cmd-finished",
+        FinishedEvent {
+            run_id,
+            exit_code: result.exit_code,
+            cancelled,
+            failed_step: result.failed_step,
+            error: result.error.clone(),
+        },
+    );
+    result
 }
 
 /// Wartet `ms` Millisekunden in kleinen Stücken, damit "Abbrechen" sofort greift.
@@ -500,11 +556,11 @@ fn build_command(cmd: &NetCommand) -> Result<Plan, String> {
     let step = match cmd {
         NetCommand::Ping { target, count } => {
             let target = validate_target(target)?;
-            Step { kind: StepKind::Run { program: "ping", args: ping_args(&target, *count)? }, disruptive: false, restore: false }
+            Step::run_args("ping", ping_args(&target, *count)?)
         }
         NetCommand::Tracert { target, resolve } => {
             let target = validate_target(target)?;
-            Step { kind: StepKind::Run { program: "tracert", args: tracert_args(&target, *resolve) }, disruptive: false, restore: false }
+            Step::run_args("tracert", tracert_args(&target, *resolve))
         }
     };
     Ok(Plan::single(step))
@@ -605,7 +661,7 @@ pub fn validate_adapter(name: &str) -> Result<String, String> {
 }
 
 /// Nur die Zeichenprüfung (ohne Abgleich mit der Adapterliste).
-fn validate_adapter_chars(name: &str) -> Result<(), String> {
+pub(crate) fn validate_adapter_chars(name: &str) -> Result<(), String> {
     if name.trim().is_empty() || name.chars().count() > 128 || name != name.trim() {
         return Err("Ungültiger Adaptername.".into());
     }
@@ -838,6 +894,26 @@ mod tests {
             },
         );
         assert_eq!(o.ran, [0, 1]);
+    }
+
+    #[test]
+    fn always_schritte_laufen_nach_fehler() {
+        // Wiederherstellen: Adresse scheitert, DNS läuft trotzdem
+        let steps = vec![
+            Step::run("netsh", &["a"]).always(),
+            Step::run("netsh", &["b"]).always(),
+            Step::run("netsh", &["c"]).always(),
+        ];
+        let o = execute_steps(&steps, || false, |i, _, _| if i == 0 { err(1) } else { ok() });
+        assert_eq!(o.ran, [0, 1, 2]);
+        assert_eq!(o.failed_step, Some(1));
+        // ... aber nicht nach einem Abbruch
+        let o = execute_steps(&steps, || true, |_, _, _| ok());
+        assert!(o.ran.is_empty());
+        // Normale Schritte stoppen weiterhin
+        let steps = vec![Step::run("netsh", &["a"]), Step::run("netsh", &["b"])];
+        let o = execute_steps(&steps, || false, |_, _, _| err(1));
+        assert_eq!(o.ran, [0]);
     }
 
     #[test]

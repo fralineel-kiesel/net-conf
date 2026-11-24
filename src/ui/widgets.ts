@@ -130,8 +130,8 @@ export function prompt(cmd: string): { el: HTMLElement; set(cmd: string): void }
   return { el, set: (c: string) => (text.textContent = c) };
 }
 
-/** Text in Statusfarbe (nur Wörter, nie Punkte/Linien): ok = grün, err = rot. */
-export function tag(text: string, kind: "ok" | "err" | "dim" | "plain" = "plain"): HTMLSpanElement {
+/** Text in Statusfarbe (nur Wörter, nie Punkte/Linien): ok = grün, err = rot, warn = Warnung (je nach Theme). */
+export function tag(text: string, kind: "ok" | "err" | "warn" | "dim" | "plain" = "plain"): HTMLSpanElement {
   return h("span", { class: `tag tag-${kind}` }, text);
 }
 

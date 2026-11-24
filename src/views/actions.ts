@@ -7,6 +7,8 @@ import { ACTIONS, GROUPS, type ActionDef, type ActionStep } from "../actions";
 import { errorText } from "../api";
 import { startAction, type RunHandle } from "../commands";
 import { explainActionFailure } from "../messages";
+import { nav } from "../nav";
+import { registerCommands } from "../registry";
 import { onStateChange, refreshAll, setState, state } from "../state";
 import { askRestartAsAdmin } from "../ui/admin";
 import { h, replaceChildren, type Child } from "../ui/dom";
@@ -197,6 +199,22 @@ export function createActions(): HTMLElement {
   select.addEventListener("change", render);
   renderSelect();
   render();
+
+  // Befehlspalette: jede Aktion läuft durch onButton() – also mit Admin-Prüfung,
+  // Adapter-Prüfung und Bestätigungsdialog, genau wie der Button auf der Seite.
+  registerCommands(
+    ACTIONS.map((def) => ({
+      id: `action.${def.id}`,
+      title: def.title,
+      category: "AKTION" as const,
+      hint: [def.admin ? "[ADMIN]" : "", def.danger ? "[!]" : ""].filter(Boolean).join(" "),
+      keywords: `${def.description} ${def.steps.map((s) => s.cmd ?? s.short).join(" ")}`,
+      run: () => {
+        nav.show("actions");
+        return onButton(def);
+      },
+    })),
+  );
 
   // --- Ausführen ----------------------------------------------------------
   async function onButton(def: ActionDef): Promise<void> {

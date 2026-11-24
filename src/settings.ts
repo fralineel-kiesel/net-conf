@@ -1,30 +1,34 @@
 // Einstellungen (nur Frontend, gespeichert im localStorage des WebViews).
+import { ACCENTS, FONT_DEFAULT, FONT_MAX, FONT_MIN, lineHeightFor, THEMES, themeById, type ThemeId } from "./themes";
 import { prefs } from "./ui/dom";
 import { validateTarget } from "./validate";
 
-export type ViewId = "overview" | "actions" | "tests" | "tables" | "lan" | "wifi" | "traffic" | "settings";
+export { ACCENTS, FONT_DEFAULT, FONT_MAX, FONT_MIN, THEMES };
+
+export type ViewId = "overview" | "actions" | "tests" | "tables" | "lan" | "wifi" | "traffic" | "tools" | "settings";
 
 export interface Settings {
+  /** Farb-Theme (src/themes.ts) */
+  theme: ThemeId;
+  /** Akzentfarbe – nur im Theme "Cyan" wählbar, die anderen Themes bringen ihre eigene mit */
   accent: string;
+  /** Schriftgrösse in px (10–20), Strg +/-/0 */
+  fontSize: number;
+  /** Beim Start nach Updates suchen (höchstens 1× pro 24 h) */
+  updateCheck: boolean;
   pingTarget: string;
   consoleLines: number;
   /** "last" = zuletzt verwendete Ansicht */
   startView: ViewId | "last";
 }
 
-/** Akzentfarben. Grün und Rot fehlen absichtlich: die sind für Status-Wörter reserviert. */
-export const ACCENTS = [
-  { value: "#22d3ee", label: "Cyan" },
-  { value: "#fbbf24", label: "Bernstein" },
-  { value: "#e879f9", label: "Magenta" },
-  { value: "#60a5fa", label: "Blau" },
-  { value: "#e5e7eb", label: "Weiss" },
-];
-
 export const CONSOLE_LINES = [5, 8, 12, 16];
 
 export const DEFAULTS: Settings = {
+  theme: "cyan",
   accent: "#22d3ee",
+  fontSize: FONT_DEFAULT,
+  updateCheck: true,
   pingTarget: "1.1.1.1",
   consoleLines: 8,
   startView: "last",
@@ -36,6 +40,9 @@ function load(): Settings {
     const s = { ...DEFAULTS, ...raw };
     // Ungültige gespeicherte Werte durch Standardwerte ersetzen
     if (!ACCENTS.some((a) => a.value === s.accent)) s.accent = DEFAULTS.accent;
+    if (!THEMES.some((t) => t.id === s.theme)) s.theme = DEFAULTS.theme;
+    if (!Number.isInteger(s.fontSize) || s.fontSize < FONT_MIN || s.fontSize > FONT_MAX) s.fontSize = DEFAULTS.fontSize;
+    if (typeof s.updateCheck !== "boolean") s.updateCheck = DEFAULTS.updateCheck;
     if (!CONSOLE_LINES.includes(s.consoleLines)) s.consoleLines = DEFAULTS.consoleLines;
     if (validateTarget(s.pingTarget)) s.pingTarget = DEFAULTS.pingTarget;
     return s;
@@ -61,6 +68,26 @@ export function updateSettings(patch: Partial<Settings>): void {
 /** Einstellungen auf die Oberfläche anwenden (CSS-Variablen). */
 export function applySettings(): void {
   const root = document.documentElement.style;
-  root.setProperty("--accent", settings.accent);
+  const theme = themeById(settings.theme);
+  // Alle Farben des Themes als Variablen (z. B. --bg, --text, --ok)
+  for (const [key, value] of Object.entries(theme.colors)) root.setProperty(`--${key}`, value);
+  // Eigene Akzentfarbe gibt es nur im Standard-Theme
+  if (theme.id === "cyan") root.setProperty("--accent", settings.accent);
+  root.setProperty("color-scheme", theme.scheme);
+  document.documentElement.dataset.theme = theme.id;
+  root.setProperty("--fs", `${settings.fontSize}px`);
+  root.setProperty("--lh", `${lineHeightFor(settings.fontSize)}px`);
   root.setProperty("--console-lines", String(settings.consoleLines));
+}
+
+/** Schriftgrösse ändern (Strg +/-/0). Gibt die neue Grösse zurück. */
+export function setFontSize(px: number): number {
+  const v = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(px)));
+  if (v !== settings.fontSize) updateSettings({ fontSize: v });
+  return v;
+}
+
+/** Theme wechseln (Einstellungen und Befehlspalette) */
+export function setTheme(id: ThemeId): void {
+  if (id !== settings.theme) updateSettings({ theme: id });
 }
