@@ -824,3 +824,88 @@ p {
     animation: none;
   }
 }
+
+/* ---------- Phase 4a: Health, Monitor, LAN ---------------------------------- */
+
+/* Mini-Verlauf im Monitor: 1 Textzeile hoch */
+.lgraph-mini {
+  gap: 1ch;
+}
+.lgraph-mini .lgraph-canvas {
+  height: var(--lh);
+}
+.sb-monitor {
+  flex: none;
+}
+
+/* Health-Check: Status-Spalte fest breit, damit die Werte untereinander stehen */
+.health-line {
+  display: flex;
+  min-width: 0;
+}
+.health-tag {
+  flex: none;
+  width: 16ch;
+  white-space: pre;
+}
+.health-tag.bright .tag {
+  color: var(--bright);
+}
+.health-hint {
+  padding-left: 16ch;
+}
+
+/* Monitor */
+.monitor-table .trow {
+  align-items: center;
+}
+.monitor-target {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.monitor-log {
+  max-height: calc(var(--lh) * 10);
+  overflow: auto;
+  white-space: pre-wrap;
+  user-select: text;
+}
+/* Health: Stufen-Titel sind länger ("6 Internet (ohne DNS)") */
+.health .kv-row {
+  grid-template-columns: 23ch 3ch minmax(0, 1fr);
+}
+.sb-msg {
+  padding-left: 2ch;
+}
+
+/* Buttons am Ende einer Tabellenzeile: nie umbrechen */
+.row-actions {
+  display: inline-flex;
+  gap: 1ch;
+  white-space: nowrap;
+}
+/* Zelle mit ... statt Umbruch mitten im Wort */
+.clip {
+  display: flex;
+  min-width: 0;
+  white-space: pre;
+}
+.clip > * {
+  flex: none;
+}
+.clip > .value {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Zelle mit zwei Zeilen (z. B. MAC und darunter IP) */
+.cell-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.trow + .trow:has(.cell-lines) {
+  margin-top: 4px;
+}

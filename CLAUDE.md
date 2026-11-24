@@ -4,7 +4,7 @@
 Net-Conf ist ein Netzwerk-Helfer für den Arbeitsalltag unter **Windows 11 (x64)**.
 Er zeigt die Infos von `ipconfig /all` als Panels, bietet Buttons für häufige
 Netzwerk-Befehle und Diagnose-Werkzeuge (Ping, Traceroute, DNS, Port-Test,
-ARP/Routen, WLAN). Look: TUI wie htop/btop, aber mit Maus-Bedienung.
+Health-Check, Ping-Monitor, ARP/Routen, WLAN, LAN-Scanner, Wake-on-LAN). Look: TUI wie htop/btop, aber mit Maus-Bedienung.
 Der Entwickler ist Informatik-Lehrling (Systemtechnik), kein Rust-Profi:
 Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** kommentieren.
 
@@ -20,10 +20,14 @@ Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** komme
 - Der echte Build läuft **nur in GitHub Actions** (`.github/workflows/build.yml`, `windows-latest`).
 - Lokal prüfbar:
   - `npm run build` – Typecheck + Frontend-Build
-  - `npm test` – Test der Ping-Graph-Skala (`scripts/pingscale.test.ts`, Node ≥ 22, ohne Test-Framework)
-  - `npm run dev` – UI im Browser mit Mock-Daten (`src/mock.ts`), `?admin=1` simuliert Adminrechte,
-    `?fail=renew` lässt jeden Aktions-Schritt scheitern, dessen Befehl „renew“ enthält (Fehlerpfad testen)
-  - `cd src-tauri && cargo test` – Rust-Tests (Validierung, Aktions-Abläufe, DNS-Parser, Port-Test). Unter Linux braucht das `libwebkit2gtk-4.1-dev`.
+  - `npm test` – Tests der Ping-Graph-Skala und der Health-Check-Bewertung
+    (`scripts/pingscale.test.ts`, `scripts/health.test.ts`, Node ≥ 22, ohne Test-Framework).
+    Importe zwischen Modulen, die Node laden soll, mit `.ts`-Endung schreiben (z. B. `health.ts` → `./netutil.ts`).
+  - `npm run dev` – UI im Browser mit Mock-Daten (`src/mock.ts` + `src/mock-diag.ts`), `?admin=1` simuliert Adminrechte,
+    `?fail=renew` lässt jeden Aktions-Schritt scheitern, dessen Befehl „renew“ enthält (Fehlerpfad testen),
+    `?net=offline|apipa|nogateway|dnsfail|noicmp` spielt Fehlerfälle für den Health-Check durch.
+  - `cd src-tauri && cargo test` – Rust-Tests (Validierung, Aktions-Abläufe, DNS-Parser, Port-Test, config.json,
+    Monitor-Logik, Subnetz-Regeln, MAC/Magic Packet). Unter Linux braucht das `libwebkit2gtk-4.1-dev`.
     `cargo test -- --ignored` macht zusätzlich echte DNS-Abfragen (braucht Netz; in der Cloud-Sandbox
     werden nur freigegebene Hosts wie github.com aufgelöst).
   - `cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc` – **typprüft den Windows-Code**
@@ -44,10 +48,15 @@ src-tauri/src/
   porttest.rs  TCP-Connect-Test, parallel pro Port (offen/geschlossen/gefiltert)
   tables.rs    ARP (GetIpNetTable2) und Routen (GetIpForwardTable2)
   wifi.rs      WLAN über wlanapi.dll (SSID, Signal, Kanal, Band, Sicherheit)
+  icmp.rs      native Pings (IcmpSendEcho, ohne ping.exe/Admin), Resolver mit Zeitlimit, parallel_map
+  config.rs    config.json in %APPDATA%\Net-Conf (Monitor-Ziele, WoL-Geräte), atomar, .bak bei Defekt
+  monitor.rs   Ping-Monitor im Backend-Thread (Stats, DOWN nach 2 Timeouts, Ausfall-Log, Events)
+  lan.rs       LAN-Scanner (SendARP, nur eigenes privates Subnetz ≤ /22), Subnetz-Regeln
+  wol.rs       Wake-on-LAN: MAC-Parser, Magic Packet, Broadcast über den gewählten Adapter
 src/
   main.ts      Layout, Navigation, Kopfzeile
   api.ts       Brücke zu Tauri – fällt auf mock.ts zurück, wenn keine Tauri-API da ist
-  events.ts    Event-Verteiler (cmd-started / cmd-output / cmd-finished)
+  events.ts    Event-Verteiler (cmd-*, monitor-update, lan-host/-progress/-finished)
   commands.ts  startCommand()/startAction(): runId vergeben, Ausgabe sammeln, Promise bis Ende
   actions.ts   Anzeige-Daten der Aktionen (Titel, Schritte, Tags, Bestätigungstexte) – auch für den Mock
   ping.ts      sprachunabhängiger Ping-Parser + Statistik
@@ -55,11 +64,16 @@ src/
   tracert.ts   sprachunabhängiger Traceroute-Parser (Hop-Zeilen: Nummer, 3× ms/*, Host)
   messages.ts  verständliche deutsche Fehlermeldungen
   settings.ts  Einstellungen (localStorage) + applySettings() → CSS-Variablen
+  config.ts    Kopie von config.json im Frontend (loadConfig/updateConfig → Backend prüft + speichert)
+  health.ts    Health-Check: Ablauf (Fakten sammeln) + reine Bewertung evaluate()/diagnose() (getestet)
+  netutil.ts   reine IPv4-/Adapter-Helfer (primaryOf, maskToPrefix, scanBlockReason, normalizeMac …)
+  nav.ts       Sprünge zwischen Ansichten ohne Import-Schleifen (z. B. LAN-Scanner → Ping-Test)
   views/       overview.ts (ASCII-Titel, SYSTEM, öffentliche IP, WLAN), actions.ts, tables.ts, settings.ts,
-               tests.ts (Reiter) + tests/ping.ts, tracert.ts, dns.ts, port.ts
+               lan.ts (Scanner + Wake-on-LAN), tests.ts (Reiter) + tests/ping.ts, tracert.ts, dns.ts,
+               port.ts, health.ts, monitor.ts
   ui/          dom.ts (h()-Helfer, Logo, Clipboard), widgets.ts (TUI-Bausteine),
                statusbar.ts (Rückmeldungen statt Toasts), console.ts, modal.ts,
-               latencygraph.ts (Ping-Graph auf Canvas), admin.ts
+               latencygraph.ts (Ping-Graph auf Canvas, `mini: true` = 1 Zeile für den Monitor), admin.ts
 assets/logo.svg  Quelle des Logos (Icons + Inline-SVG in der Kopfzeile)
 assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 ```
@@ -86,6 +100,24 @@ assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 - WLAN ab Windows 11 24H2: SSID/BSSID nur mit Standortzugriff für Desktop-Apps →
   verständlicher Hinweis statt Fehlercode (`wifi::LOCATION_HINT`).
 - Konservativ coden: lieber einfach und sicher kompilierend als clever.
+- Viele kurze Pings (Health, Monitor, Scan, WoL-Check) **nur über `icmp.rs`** (IcmpSendEcho), nie ping.exe.
+  Der Ping-Test (Tests → Ping) bleibt bei ping.exe, damit man dort die echte Windows-Ausgabe sieht.
+- Parallelität immer begrenzen (`icmp::parallel_map`): Scan 64, Monitor ≤ 20 (= max. Ziele).
+- Dauerhafte Daten, die das Backend kennen muss (Monitor-Ziele, WoL-Geräte), in `config.json` über
+  `config.rs` – nie direkt schreiben. Beim Speichern streng prüfen, beim Laden Ungültiges verwerfen.
+  Reine Anzeige-Einstellungen bleiben im localStorage (`settings.ts`).
+
+### Sicherheitsregeln LAN-Scan und Wake-on-LAN
+- **Kein frei wählbarer IP-Bereich.** Das Frontend schickt nur Adaptername + eigene IPv4-Adresse;
+  das Backend prüft, dass beides exakt in der aktuellen Adapterliste steht und berechnet das Subnetz selbst.
+- Gescannt werden nur private Netze (RFC 1918: 10/8, 172.16/12, 192.168/16) und Link-Local (169.254/16),
+  höchstens **/22** (1022 Adressen). Regel steht in `lan::scan_range` (mit Tests) und gespiegelt in
+  `netutil.scanBlockReason` (nur Anzeige).
+- Es läuft immer nur ein Scan; Abbruch über `lan_scan_cancel`, beim Beenden der App automatisch.
+- Fester Hinweis im Panel: „Nur im eigenen bzw. erlaubten Netz verwenden.“
+- WoL: MAC im Backend prüfen (`wol::parse_mac`, Formate `AA-BB-…`, `AA:BB:…`, `AABB…`, kein Multicast/00/FF),
+  gesendet wird nur per Broadcast über einen echten Adapter (Socket an dessen IP gebunden):
+  an die Subnetz-Broadcast-Adresse und an 255.255.255.255, UDP-Port 9.
 
 ## Design-Regeln: TUI-Look (wie htop, btop, lazygit)
 Die App soll wie eine Terminal-Oberfläche wirken, bleibt aber per Maus bedienbar.
@@ -123,13 +155,46 @@ Bausteine (`src/ui/widgets.ts`) – immer diese verwenden:
 
 Layout:
 - Kopfzeile: eine Textzeile `[Logo] net-conf @ HOST … [ADMIN]|[USER] [ Neu laden ] (F5)`.
-- Seitenleiste: Textmenü mit `>`-Marker, Tastenkürzel F1 Übersicht, F2 Aktionen,
-  F3 Tests (nochmal F3 = nächster Reiter), F4 Tabellen, F10 Einstellungen; F5 = Neu laden.
+- Seitenleiste: Textmenü mit `>`-Marker und Tastenkürzeln (siehe Seitenübersicht unten).
 - Hauptbereich, darunter Konsole (gleiches Panel-Design), ganz unten Statusleiste (wie vim/tmux).
 - Schrift: `Cascadia Mono` → `Consolas` → monospace, **13px** überall. **Keine Web-Fonts** (offline!).
 - Mindestfenster 900×600 muss gut aussehen (Adapter-Panels zweispaltig).
 - Prüfen: Screenshots im Mock-Modus + Audit, das per `getComputedStyle` Rundungen,
   Schatten, Verläufe, Transitions und Grün/Rot als Rahmen/Hintergrund sucht.
+
+## Seitenübersicht (Tasten)
+| Taste | Seite | Inhalt |
+|---|---|---|
+| F1 | Übersicht | ASCII-Titel, SYSTEM, öffentliche IP, ein Panel pro Adapter (+ WLAN) |
+| F2 | Aktionen | ipconfig/arp/nbtstat/netsh-Aktionen aus der Whitelist |
+| F3 | Tests | Reiter Ping · Traceroute · DNS · Port · Health · Monitor (nochmal F3 = nächster Reiter) |
+| F4 | Tabellen | ARP- und Routing-Tabelle |
+| F5 | – | Neu laden |
+| F6 | LAN | Reiter Scanner · Wake-on-LAN (nochmal F6 = nächster Reiter) |
+| F7 | *(reserviert)* | WLAN |
+| F8 | *(reserviert)* | Traffic |
+| F9 | *(reserviert)* | Werkzeuge |
+| F10 | Einstellungen | Akzentfarbe, Ping-Ziel, Konsole, Start-Ansicht, Speicherorte |
+
+Neue Seite: `ViewId` in `settings.ts`, `NAV` + `views` in `main.ts`, `START_VIEWS` in `views/settings.ts`.
+
+## Diagnose (Phase 4a)
+- **Health-Check** (Tests → Health): 6 Stufen nacheinander – Adapter mit Gateway, IPv4 ohne APIPA,
+  Gateway-Ping, Ping jedes IPv4-DNS-Servers, Auflösung von example.com über den System-Resolver
+  (Zeitlimit 3 s, `resolve_name`), Ping 1.1.1.1 (Fallback 8.8.8.8). Status `[OK]` `[WARNUNG]` `[FEHLER]`
+  `[ÜBERSPRUNGEN]` mit Wert und deutschem Hinweis, Abschlusszeile „Diagnose: …“, [ Kopieren ].
+  Fehlende Pings werden erst am Ende bewertet: klappen Auflösung/Internet, ist es nur [WARNUNG] (ICMP blockiert).
+  Hinweis: Der Windows-DNS-Cache kann example.com auch bei kaputtem DNS noch beantworten.
+- **Ping-Monitor** (Tests → Monitor): max. 20 Ziele, Intervall 1/2/5/10 s, läuft im Backend-Thread weiter.
+  DOWN erst nach **2** Timeouts in Folge, UP bei der nächsten Antwort. Ausfall-Log max. 500 Einträge.
+  Statusleiste zeigt „Monitor: N Ziele, M DOWN“, solange er läuft. Ziele + Intervall in config.json;
+  `monitor_set` behält die Statistik unveränderter Ziele (Schlüssel Name + Host), `monitor_start` setzt sie zurück.
+- **LAN-Scanner** (LAN → Scanner): SendARP auf jede Adresse (64 parallel; SendARP hat kein Zeitlimit,
+  leere Adressen dauern ~1–3 s), danach für gefundene Geräte ICMP (500 ms) und PTR beim ersten
+  IPv4-DNS-Server des Adapters (1 s, `dns::reverse_lookup`). Ergebnis kommt als `lan-host`-Events
+  (pro Gerät zweimal: erst MAC, dann Latenz/Name). Eigene IP = MAC aus der Adapterliste.
+- **Wake-on-LAN** (LAN → Wake-on-LAN): Geräteliste in config.json, nach dem Senden Ping-Check alle 2 s
+  für max. 60 s (nur wenn IP bekannt). „Gesendet“ heisst nicht „aufgewacht“ – steht so im Panel.
 
 ## Aktionen (F2) – Whitelist über Aktions-IDs
 Das Frontend schickt nur `run_action(runId, action, adapter)`. Programme (immer `%SystemRoot%\System32\…`),
@@ -211,9 +276,14 @@ Regeln:
   WLAN-Infos, Einstellungen.
 - **Phase 3 (fertig, v0.3.0):** ASCII-Titel + SYSTEM-Panel, primärer Adapter zuerst, Aktionen in Panels
   mit Abläufen (Release + Renew u. a.), Ping-Anzahl wählbar, ruhiger Ping-Graph.
+- **Phase 4a (fertig, v0.4.0):** ICMP-Modul (IcmpSendEcho), config.json-Persistenz, Health-Check,
+  Ping-Monitor im Hintergrund, LAN-Scanner (F6) mit Reverse-DNS, Wake-on-LAN mit Ping-Check.
 - **Ideen für später (NICHT bauen ohne Auftrag):**
-  - WLAN-Umgebung scannen (alle Netze mit Kanal/Signal, Kanalbelegung als Blockgrafik)
-  - Netzwerk-Scan im eigenen Subnetz (Ping-Sweep, ARP)
+  - F7 WLAN: WLAN-Umgebung scannen (alle Netze mit Kanal/Signal, Kanalbelegung als Blockgrafik)
+  - F8 Traffic, F9 Werkzeuge (Inhalt noch offen)
+  - Hersteller zur MAC (OUI) im LAN-Scanner: nur mit kompakter eingebetteter Tabelle (< 300 KB);
+    die volle IEEE-Liste ist deutlich grösser – daher in 4a weggelassen
+  - IPv6 im ICMP-Modul (Icmp6SendEcho2) für Monitor/Health
   - Speed-/Latenz-Langzeitmessung mit Export (CSV)
   - DNS-Server/IP per Klick setzen (netsh, braucht Admin)
   - Ergebnisse als Text für Tickets exportieren

@@ -4,6 +4,7 @@
 // Tipps (URL-Parameter):
 //   ?admin=1     tut so, als liefe die App mit Administratorrechten
 //   ?fail=renew  jeder Aktions-Schritt, dessen Befehl "renew" enthält, scheitert
+//   ?net=…       Netzwerk-Szenarien für den Health-Check (siehe mock-diag.ts)
 import { actionById, type ActionStep } from "./actions";
 import { events } from "./events";
 import { validateTarget } from "./validate";
@@ -98,7 +99,17 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function getAdapters(): Promise<AdapterInfo[]> {
   await delay(120);
-  return structuredClone(ADAPTERS);
+  const list = structuredClone(ADAPTERS);
+  // Szenarien für den Health-Check (?net=offline / ?net=apipa)
+  const net = params.get("net");
+  const wlan = list[0];
+  if (net === "offline") wlan.connected = false;
+  if (net === "apipa") {
+    wlan.ipv4 = [{ address: "169.254.83.17", subnetMask: "255.255.0.0" }];
+    wlan.gateways = [];
+    wlan.dnsServers = [];
+  }
+  return list;
 }
 
 export async function getHostname(): Promise<string> {
@@ -534,3 +545,6 @@ export async function getPublicIp(): Promise<PublicIp> {
   await delay(400);
   return { ipv4: "203.0.113.42", ipv6: "2a02:1210:5e0c:a100:1c2d:3e4f:5a6b:7c8d" };
 }
+
+// ---- Phase 4a ----------------------------------------------------------------
+export * from "./mock-diag";

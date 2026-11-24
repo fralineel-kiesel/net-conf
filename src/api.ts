@@ -7,6 +7,18 @@ import * as mock from "./mock";
 import type {
   ActionId,
   AdapterInfo,
+  AppConfig,
+  ConfigLoadResult,
+  LanFinishedEvent,
+  LanHostEvent,
+  LanProgressEvent,
+  MonitorStatus,
+  MonitorTarget,
+  MonitorUpdate,
+  PingResult,
+  ResolveResult,
+  ScanStarted,
+  WolResult,
   DnsRequest,
   DnsResponse,
   FinishedEvent,
@@ -36,6 +48,10 @@ export async function initBackend(): Promise<void> {
     listen<StepEvent>("cmd-step", (e) => events.step.emit(e.payload)),
     listen<OutputEvent>("cmd-output", (e) => events.output.emit(e.payload)),
     listen<FinishedEvent>("cmd-finished", (e) => events.finished.emit(e.payload)),
+    listen<MonitorUpdate>("monitor-update", (e) => events.monitor.emit(e.payload)),
+    listen<LanHostEvent>("lan-host", (e) => events.lanHost.emit(e.payload)),
+    listen<LanProgressEvent>("lan-progress", (e) => events.lanProgress.emit(e.payload)),
+    listen<LanFinishedEvent>("lan-finished", (e) => events.lanFinished.emit(e.payload)),
   ]);
 }
 
@@ -75,6 +91,48 @@ export const backend = {
     isTauri ? invoke<RouteEntry[]>("get_route_table") : mock.getRouteTable(),
 
   getWifi: (): Promise<WifiInfo[]> => (isTauri ? invoke<WifiInfo[]>("get_wifi") : mock.getWifi()),
+
+  // ---- Phase 4a: Diagnose ----
+  /** Nativer Ping über IcmpSendEcho (ohne ping.exe). Nur IPv4. */
+  icmpPing: (target: string, timeoutMs: number): Promise<PingResult> =>
+    isTauri ? invoke<PingResult>("icmp_ping", { target, timeoutMs }) : mock.icmpPing(target, timeoutMs),
+
+  /** Namensauflösung über den System-Resolver, mit Zeitlimit. */
+  resolveName: (name: string, timeoutMs: number): Promise<ResolveResult> =>
+    isTauri ? invoke<ResolveResult>("resolve_name", { name, timeoutMs }) : mock.resolveName(name, timeoutMs),
+
+  loadConfig: (): Promise<ConfigLoadResult> =>
+    isTauri ? invoke<ConfigLoadResult>("load_config") : mock.loadConfig(),
+
+  /** Speichert config.json (Backend prüft alles und gibt die normalisierte Fassung zurück). */
+  saveConfig: (config: AppConfig): Promise<AppConfig> =>
+    isTauri ? invoke<AppConfig>("save_config", { config }) : mock.saveConfig(config),
+
+  monitorSet: (targets: MonitorTarget[], intervalSec: number): Promise<MonitorStatus> =>
+    isTauri ? invoke<MonitorStatus>("monitor_set", { targets, intervalSec }) : mock.monitorSet(targets, intervalSec),
+
+  monitorStart: (): Promise<MonitorStatus> =>
+    isTauri ? invoke<MonitorStatus>("monitor_start") : mock.monitorStart(),
+
+  monitorStop: (): Promise<MonitorStatus> =>
+    isTauri ? invoke<MonitorStatus>("monitor_stop") : mock.monitorStop(),
+
+  monitorStatus: (): Promise<MonitorStatus> =>
+    isTauri ? invoke<MonitorStatus>("monitor_status") : mock.monitorStatus(),
+
+  monitorClearLog: (): Promise<void> =>
+    isTauri ? invoke<void>("monitor_clear_log") : mock.monitorClearLog(),
+
+  /** LAN-Scan: nur Adaptername + eigene Adresse – das Subnetz bestimmt das Backend. */
+  lanScanStart: (scanId: number, adapter: string, address: string): Promise<ScanStarted> =>
+    isTauri
+      ? invoke<ScanStarted>("lan_scan_start", { scanId, adapter, address })
+      : mock.lanScanStart(scanId, adapter, address),
+
+  lanScanCancel: (): Promise<void> => (isTauri ? invoke<void>("lan_scan_cancel") : mock.lanScanCancel()),
+
+  wolSend: (mac: string, adapter: string, address: string): Promise<WolResult> =>
+    isTauri ? invoke<WolResult>("wol_send", { mac, adapter, address }) : mock.wolSend(mac, adapter, address),
 
   /** Öffentliche IP über ipify.org – nur auf ausdrücklichen Klick aufrufen! */
   getPublicIp: (): Promise<PublicIp> => (isTauri ? fetchPublicIp() : mock.getPublicIp()),

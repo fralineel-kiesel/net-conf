@@ -112,7 +112,7 @@ pub fn query(req: &DnsRequest) -> Result<DnsResponse, String> {
     let id = random_id();
     let packet = build_query(id, &name, qtype);
     let start = Instant::now();
-    let reply = send_udp(server, &packet, id)?;
+    let reply = send_udp(server, &packet, id, 2, Duration::from_secs(2))?;
     let elapsed_ms = start.elapsed().as_millis().min(u32::MAX as u128) as u32;
 
     let parsed = parse_response(&reply)?;
@@ -128,6 +128,26 @@ pub fn query(req: &DnsRequest) -> Result<DnsResponse, String> {
         answers: parsed.answers,
         authority: parsed.authority,
     })
+}
+
+/// Reverse-Lookup (PTR) direkt beim DNS-Server `server`, ein Versuch mit
+/// kurzem Zeitlimit. Für den LAN-Scan: Viele Router (z. B. FRITZ!Box) und
+/// Firmen-DNS-Server kennen die Namen der Geräte im eigenen Netz.
+/// `None` = kein Name (oder keine Antwort) – das ist kein Fehler.
+pub fn reverse_lookup(ip: IpAddr, server: IpAddr, timeout: Duration) -> Option<String> {
+    let id = random_id();
+    let packet = build_query(id, &reverse_name(ip), 12);
+    let reply = send_udp(SocketAddr::new(server, 53), &packet, id, 1, timeout).ok()?;
+    let parsed = parse_response(&reply).ok()?;
+    if parsed.rcode != 0 {
+        return None;
+    }
+    parsed
+        .answers
+        .into_iter()
+        .find(|r| r.record_type == "PTR")
+        .map(|r| r.data.trim_end_matches('.').to_string())
+        .filter(|n| !n.is_empty() && n != ".")
 }
 
 /// Hostname prüfen: nur ASCII-Buchstaben, Ziffern, '-', '_' und Punkte.
@@ -221,20 +241,19 @@ fn random_id() -> u16 {
 // Netzwerk
 // ---------------------------------------------------------------------------
 
-/// Anfrage senden, auf passende Antwort warten. Zwei Versuche à 2 s.
-fn send_udp(server: SocketAddr, packet: &[u8], id: u16) -> Result<Vec<u8>, String> {
+/// Anfrage senden, auf passende Antwort warten: `attempts` Versuche à `timeout`
+/// (DNS-Abfrage: 2 × 2 s, Reverse-Lookup im LAN-Scan: 1 × 1 s).
+fn send_udp(server: SocketAddr, packet: &[u8], id: u16, attempts: u32, timeout: Duration) -> Result<Vec<u8>, String> {
     let bind = if server.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
     let socket = UdpSocket::bind(bind).map_err(|e| format!("Socket-Fehler: {e}"))?;
-    socket
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .map_err(|e| format!("Socket-Fehler: {e}"))?;
+    socket.set_read_timeout(Some(timeout)).map_err(|e| format!("Socket-Fehler: {e}"))?;
 
     let mut buf = [0u8; 4096];
-    for _attempt in 0..2 {
+    for _attempt in 0..attempts {
         socket
             .send_to(packet, server)
             .map_err(|e| format!("Anfrage an {server} konnte nicht gesendet werden: {e}"))?;
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
             match socket.recv_from(&mut buf) {
                 Ok((n, from)) => {

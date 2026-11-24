@@ -172,3 +172,129 @@ export interface PublicIp {
   ipv4: string | null;
   ipv6: string | null;
 }
+
+// ---- Phase 4a: Diagnose ----------------------------------------------------
+
+/** Nativer Ping (icmp.rs) */
+export interface PingResult {
+  address: string;
+  status: "ok" | "timeout" | "unreachable" | "error";
+  rttMs: number | null;
+  ttl: number | null;
+  message: string | null;
+}
+
+/** System-Namensauflösung (Health-Check) */
+export interface ResolveResult {
+  addresses: string[];
+  elapsedMs: number;
+}
+
+export interface MonitorTarget {
+  name: string;
+  host: string;
+}
+
+export interface WolDevice {
+  name: string;
+  /** "AA-BB-CC-DD-EE-FF" (normalisiert vom Backend) */
+  mac: string;
+  ip: string | null;
+  note: string;
+}
+
+/** Inhalt von config.json (config.rs) */
+export interface AppConfig {
+  version: number;
+  monitorTargets: MonitorTarget[];
+  monitorIntervalSec: number;
+  wolDevices: WolDevice[];
+}
+
+export interface ConfigLoadResult {
+  config: AppConfig;
+  /** z. B. "config.json war beschädigt …" */
+  notice: string | null;
+  path: string;
+}
+
+/** Erlaubte Monitor-Intervalle (gleich wie MONITOR_INTERVALS in config.rs) */
+export const MONITOR_INTERVALS = [1, 2, 5, 10] as const;
+export const MAX_MONITOR_TARGETS = 20;
+
+export interface MonitorTargetView {
+  name: string;
+  host: string;
+  address: string | null;
+  status: "unknown" | "up" | "down";
+  lastMs: number | null;
+  avgMs: number | null;
+  sent: number;
+  received: number;
+  lossPercent: number;
+  history: (number | null)[];
+  /** Unix-ms des letzten Statuswechsels */
+  sinceMs: number | null;
+  error: string | null;
+}
+
+export interface MonitorLogEntry {
+  timeMs: number;
+  name: string;
+  host: string;
+  kind: "down" | "up";
+  afterSec: number | null;
+}
+
+export interface MonitorStatus {
+  running: boolean;
+  intervalSec: number;
+  targets: MonitorTargetView[];
+  log: MonitorLogEntry[];
+}
+
+/** Event "monitor-update": wie MonitorStatus, aber nur die NEUEN Log-Einträge */
+export interface MonitorUpdate {
+  running: boolean;
+  intervalSec: number;
+  targets: MonitorTargetView[];
+  newLog: MonitorLogEntry[];
+}
+
+export interface LanHost {
+  ip: string;
+  mac: string;
+  latencyMs: number | null;
+  hostname: string | null;
+  /** true, solange Latenz/Name noch ermittelt werden */
+  pending: boolean;
+}
+
+export interface LanHostEvent {
+  scanId: number;
+  host: LanHost;
+}
+
+export interface LanProgressEvent {
+  scanId: number;
+  done: number;
+  total: number;
+}
+
+export interface LanFinishedEvent {
+  scanId: number;
+  cancelled: boolean;
+  found: number;
+  elapsedMs: number;
+}
+
+export interface ScanStarted {
+  /** z. B. "192.168.1.0/24" */
+  network: string;
+  total: number;
+}
+
+export interface WolResult {
+  mac: string;
+  sentTo: string[];
+}

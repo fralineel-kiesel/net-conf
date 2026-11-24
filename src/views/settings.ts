@@ -1,9 +1,10 @@
 // Ansicht "Einstellungen": Akzentfarbe, Standard-Ping-Ziel, Konsole-Höhe, Start-Ansicht.
+import { configPath, onConfigChange } from "../config";
 import { ACCENTS, CONSOLE_LINES, DEFAULTS, settings, updateSettings, type Settings } from "../settings";
 import { h, replaceChildren } from "../ui/dom";
 import { confirmDialog } from "../ui/modal";
 import { status } from "../ui/statusbar";
-import { kvRow, panel, prompt, radio, tbutton } from "../ui/widgets";
+import { copyable, kvRow, panel, prompt, radio, tbutton } from "../ui/widgets";
 import { validateTarget } from "../validate";
 
 const START_VIEWS: { value: Settings["startView"]; label: string }[] = [
@@ -12,16 +13,20 @@ const START_VIEWS: { value: Settings["startView"]; label: string }[] = [
   { value: "actions", label: "Aktionen" },
   { value: "tests", label: "Tests" },
   { value: "tables", label: "Tabellen" },
+  { value: "lan", label: "LAN" },
 ];
 
 export function createSettings(): HTMLElement {
   const body = h("div", {});
   const p = panel("EINSTELLUNGEN", {}, body);
+  const configFile = h("span", { class: "dim" }, "–");
+  onConfigChange(() => replaceChildren(configFile, configPath() ? copyable(configPath()) : "–"));
   const info = panel(
     "INFO",
     {},
     kvRow("Version", `net-conf v${__APP_VERSION__}`),
     kvRow("Speicherort", "lokal im Benutzerprofil (WebView-Speicher)"),
+    kvRow("Monitor / WoL", configFile),
     kvRow("Öffentliche IP", "wird nur auf Klick über ipify.org abgefragt"),
   );
   const view = h(

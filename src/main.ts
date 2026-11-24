@@ -1,6 +1,7 @@
 // Einstiegspunkt: baut das Layout auf und verbindet alles.
 import "./styles.css";
 import { initBackend, isTauri } from "./api";
+import { loadConfig } from "./config";
 import { onStateChange, refreshAll, state } from "./state";
 import { createConsole } from "./ui/console";
 import { copyText, h, logo, prefs } from "./ui/dom";
@@ -8,7 +9,9 @@ import { dialogOpen } from "./ui/modal";
 import { applySettings, settings, type ViewId } from "./settings";
 import { createStatusbar, status } from "./ui/statusbar";
 import { tag, tbutton } from "./ui/widgets";
+import { nav } from "./nav";
 import { createActions } from "./views/actions";
+import { createLan } from "./views/lan";
 import { createOverview } from "./views/overview";
 import { createSettings } from "./views/settings";
 import { createTables } from "./views/tables";
@@ -19,6 +22,8 @@ const NAV: { id: ViewId; label: string; key: string }[] = [
   { id: "actions", label: "Aktionen", key: "F2" },
   { id: "tests", label: "Tests", key: "F3" },
   { id: "tables", label: "Tabellen", key: "F4" },
+  { id: "lan", label: "LAN", key: "F6" },
+  // F7 WLAN, F8 Traffic, F9 Werkzeuge sind für später reserviert (siehe CLAUDE.md)
   { id: "settings", label: "Einstellungen", key: "F10" },
 ];
 
@@ -66,11 +71,13 @@ function main(): void {
 
   const tests = createTests();
   const tables = createTables();
+  const lan = createLan();
   const views: Record<ViewId, HTMLElement> = {
     overview: createOverview(),
     actions: createActions(),
     tests: tests.el,
     tables: tables.el,
+    lan: lan.el,
     settings: createSettings(),
   };
   const mainEl = h("main", { class: "main" }, ...Object.values(views));
@@ -91,6 +98,7 @@ function main(): void {
     prefs.set("view", id);
     mainEl.scrollTop = 0;
   };
+  nav.show = show;
 
   const sidebar = h(
     "nav",
@@ -118,8 +126,8 @@ function main(): void {
   const saved = (settings.startView === "last" ? prefs.get("view", "overview") : settings.startView) as ViewId;
   show(saved in views ? saved : "overview");
 
-  // Tastenkürzel: F1–F4 und F10 wechseln den Bereich, F5 lädt neu.
-  // F3 in "Tests" springt zum nächsten Reiter (Ping → Traceroute → DNS → Port).
+  // Tastenkürzel: F1–F4, F6 und F10 wechseln den Bereich, F5 lädt neu.
+  // F3 in "Tests" springt zum nächsten Reiter (Ping → … → Monitor), F6 in "LAN" ebenso.
   // preventDefault, damit WebView2 nicht die Seite neu lädt (F5) oder Hilfe öffnet (F1).
   document.addEventListener(
     "keydown",
@@ -129,6 +137,7 @@ function main(): void {
       e.preventDefault();
       if (dialogOpen()) return;
       if (nav?.id === "tests" && currentView === "tests") tests.next();
+      else if (nav?.id === "lan" && currentView === "lan") lan.next();
       else if (nav) show(nav.id);
       else void reload();
     },
@@ -144,7 +153,11 @@ function main(): void {
     });
   }
 
-  void initBackend().then(refreshAll);
+  void initBackend().then(async () => {
+    // config.json (Monitor-Ziele, WoL-Geräte) laden – ein Hinweis (z. B. kaputte Datei) kommt in die Statusleiste
+    const [notice] = await Promise.all([loadConfig(), refreshAll()]);
+    if (notice) status(notice, "error");
+  });
 }
 
 main();

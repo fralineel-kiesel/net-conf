@@ -1,6 +1,15 @@
 // Kleiner Event-Verteiler. Sowohl echte Tauri-Events als auch die
 // Mock-Daten im Browser landen hier – der Rest der App merkt keinen Unterschied.
-import type { FinishedEvent, OutputEvent, StartedEvent, StepEvent } from "./types";
+import type {
+  FinishedEvent,
+  LanFinishedEvent,
+  LanHostEvent,
+  LanProgressEvent,
+  MonitorUpdate,
+  OutputEvent,
+  StartedEvent,
+  StepEvent,
+} from "./types";
 
 type Handler<T> = (event: T) => void;
 
@@ -23,4 +32,9 @@ export const events = {
   step: new Emitter<StepEvent>(),
   output: new Emitter<OutputEvent>(),
   finished: new Emitter<FinishedEvent>(),
+  // Phase 4a: Ping-Monitor und LAN-Scan (Backend-Threads)
+  monitor: new Emitter<MonitorUpdate>(),
+  lanHost: new Emitter<LanHostEvent>(),
+  lanProgress: new Emitter<LanProgressEvent>(),
+  lanFinished: new Emitter<LanFinishedEvent>(),
 };
