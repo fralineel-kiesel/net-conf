@@ -1,91 +1,76 @@
-// Ansicht "Tests": Ping mit Live-Statistik und Latenz-Sparkline.
+// Ansicht "Tests": Ping mit Live-Statistik und Latenz-Graph aus Blockzeichen.
 import { errorText } from "../api";
 import { startCommand, type RunHandle } from "../commands";
 import { explainFailure } from "../messages";
 import { PingStats } from "../ping";
 import { onStateChange, primaryAdapter } from "../state";
-import { h, icon, replaceChildren } from "../ui/dom";
-import { toast } from "../ui/toast";
+import { blockGraph } from "../ui/blockgraph";
+import { h, replaceChildren } from "../ui/dom";
+import { status } from "../ui/statusbar";
+import { kvRow, panel, prompt, radio, tag, tbutton } from "../ui/widgets";
 import { validateTarget } from "../validate";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-const SPARK_POINTS = 60; // so viele Messwerte zeigt die Sparkline
-const SPARK_W = 600;
-const SPARK_H = 80;
+const GRAPH_POINTS = 60; // so viele Messwerte zeigt der Graph
+const GRAPH_ROWS = 4; // Höhe in Textzeilen
 
 export function createTests(): HTMLElement {
+  const heading = prompt("ping -n 4 1.1.1.1");
   const input = h("input", {
-    class: "input",
+    class: "tinput",
     id: "ping-target",
     type: "text",
     value: "1.1.1.1",
     spellcheck: "false",
     autocomplete: "off",
     placeholder: "IP-Adresse oder Hostname",
+    "aria-label": "Ziel",
   });
 
   // Anzahl: 4 Pakete oder unbegrenzt (ping -t)
   let unlimited = false;
-  const count4 = h("button", { class: "seg active", type: "button" }, "4×");
-  const countInf = h("button", { class: "seg", type: "button", title: "Läuft, bis du Stop drückst" }, "∞ bis Stop");
-  const setUnlimited = (v: boolean) => {
-    unlimited = v;
-    count4.classList.toggle("active", !v);
-    countInf.classList.toggle("active", v);
-  };
-  count4.addEventListener("click", () => setUnlimited(false));
-  countInf.addEventListener("click", () => setUnlimited(true));
+  const countRadio = radio(
+    [
+      { value: "4", label: "4 Pakete" },
+      { value: "inf", label: "bis Stop", title: "Läuft, bis du Stop drückst (ping -t)" },
+    ],
+    "4",
+    (v) => {
+      unlimited = v === "inf";
+      updateHeading();
+    },
+  );
 
-  const startBtn = h("button", { class: "btn btn-primary ping-btn" });
-  const quick = h("div", { class: "quick" });
+  const startBtn = tbutton("Start", { cls: "tbtn-wide" });
+  const quick = h("span", { class: "quick" });
 
-  // Statistik-Kacheln
-  const tile = (label: string) => {
-    const value = h("span", { class: "tile-value" }, "–");
-    return { el: h("div", { class: "tile" }, h("span", { class: "tile-label" }, label), value), value };
-  };
-  const tSent = tile("Gesendet");
-  const tRecv = tile("Empfangen");
-  const tLoss = tile("Verlust");
-  const tMin = tile("Min");
-  const tAvg = tile("Ø");
-  const tMax = tile("Max");
+  // Statistik als Textzeilen
+  const packets = h("span", { class: "plain" }, "–");
+  const latency = h("span", { class: "plain" }, "–");
+  const statusLine = h("span", { class: "dim" }, "bereit");
+  const graph = h("div", { class: "graph", "aria-label": "Latenzverlauf" });
 
-  // Sparkline (SVG, ohne Chart-Bibliothek)
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("viewBox", `0 0 ${SPARK_W} ${SPARK_H}`);
-  svg.setAttribute("preserveAspectRatio", "none");
-  svg.setAttribute("class", "spark");
-  svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", "Latenzverlauf");
-  const sparkLast = h("span", { class: "spark-last" });
-  const sparkScale = h("span", { class: "spark-scale muted small" });
-
-  const status = h("p", { class: "ping-status muted" }, "Bereit.");
+  const pingPanel = panel(
+    "PING",
+    {},
+    kvRow("Ziel", h("span", { class: "input-wrap" }, h("span", { class: "dim" }, "> "), input)),
+    kvRow("Anzahl", countRadio),
+    kvRow("Schnellwahl", quick),
+    h("div", { class: "panel-actions" }, startBtn),
+  );
+  const statsPanel = panel(
+    "STATISTIK",
+    {},
+    kvRow("Pakete", packets),
+    kvRow("Latenz", latency),
+    kvRow("Status", statusLine),
+    kvRow(`Verlauf (${GRAPH_POINTS})`, graph),
+  );
 
   const view = h(
     "section",
     { class: "view", "data-view": "tests" },
-    h(
-      "div",
-      { class: "view-header" },
-      h("div", {}, h("h1", {}, "Tests"), h("p", { class: "muted" }, "Erreichbarkeit prüfen. Die Rohausgabe läuft zusätzlich in die Konsole.")),
-    ),
-    h(
-      "article",
-      { class: "card ping-card" },
-      h("header", { class: "card-header" }, h("div", { class: "card-title" }, h("h2", {}, "Ping"), h("p", { class: "muted small" }, "Sendet ICMP-Echo-Anfragen und misst die Antwortzeit."))),
-      h(
-        "div",
-        { class: "ping-form" },
-        h("label", { class: "field-label", for: "ping-target" }, "Ziel"),
-        h("div", { class: "ping-row" }, input, h("div", { class: "segmented", role: "group", "aria-label": "Anzahl" }, count4, countInf), startBtn),
-        quick,
-      ),
-      h("div", { class: "tiles" }, tSent.el, tRecv.el, tLoss.el, tMin.el, tAvg.el, tMax.el),
-      h("div", { class: "spark-wrap" }, svg, sparkLast, sparkScale),
-      status,
-    ),
+    heading.el,
+    h("div", { class: "stack" }, pingPanel.el, statsPanel.el),
   );
 
   // --- Zustand -------------------------------------------------------------
@@ -93,85 +78,68 @@ export function createTests(): HTMLElement {
   let stopping = false;
   let stats = new PingStats();
 
+  function updateHeading(): void {
+    const target = input.value.trim() || "<ziel>";
+    heading.set(`ping ${unlimited ? "-t" : "-n 4"} ${target}`);
+  }
+
+  const setStatus = (text: string, kind: "plain" | "ok" | "err" | "dim" = "plain") => {
+    statusLine.textContent = text;
+    statusLine.className = `tag-${kind}`;
+  };
+
   const renderButton = () => {
-    if (stopping) startBtn.replaceChildren(h("span", { class: "spinner" }), "Stoppe …");
-    else startBtn.replaceChildren(...(handle ? [icon("stop"), "Stop"] : [icon("play"), "Start"]));
+    startBtn.textContent = stopping ? "stoppe …" : handle ? "Stop" : "Start";
     startBtn.disabled = stopping;
-    startBtn.classList.toggle("btn-danger", !!handle);
-    startBtn.classList.toggle("btn-primary", !handle);
   };
 
   const renderStats = () => {
-    tSent.value.textContent = String(stats.sent);
-    tRecv.value.textContent = String(stats.received);
-    tLoss.value.textContent = stats.sent ? `${stats.lossPercent} %` : "–";
-    tLoss.el.classList.toggle("bad", stats.lost > 0);
-    tMin.value.textContent = stats.received ? `${stats.min} ms` : "–";
-    tAvg.value.textContent = stats.avg !== null ? `${stats.avg} ms` : "–";
-    tMax.value.textContent = stats.received ? `${stats.max} ms` : "–";
-    renderSpark();
+    if (stats.sent === 0) {
+      packets.replaceChildren("–");
+      latency.replaceChildren("–");
+    } else {
+      packets.replaceChildren(
+        `gesendet ${stats.sent}, empfangen ${stats.received}, verloren `,
+        tag(`${stats.lost} (${stats.lossPercent} %)`, stats.lost > 0 ? "err" : "plain"),
+      );
+      latency.replaceChildren(
+        stats.received ? `min ${stats.min} ms, avg ${stats.avg} ms, max ${stats.max} ms` : "–",
+      );
+    }
+    renderGraph();
   };
 
-  const renderSpark = () => {
-    const data = stats.history.slice(-SPARK_POINTS);
-    svg.replaceChildren();
-    const last = data[data.length - 1];
-    sparkLast.textContent = data.length ? (last === null ? "verloren" : `${last} ms`) : "";
-    sparkLast.classList.toggle("bad", last === null);
+  const renderGraph = () => {
+    const data = stats.history.slice(-GRAPH_POINTS);
     if (data.length === 0) {
-      sparkScale.textContent = "";
+      replaceChildren(graph, h("span", { class: "dim" }, "–"));
       return;
     }
-
-    const maxVal = Math.max(10, ...data.map((v) => v ?? 0)) * 1.2;
-    sparkScale.textContent = `0–${Math.round(maxVal)} ms`;
-    // Mindestens 10 Plätze, damit wenige Werte nicht über die ganze Breite
-    // gezogen werden; bei Dauer-Ping wächst die Achse bis SPARK_POINTS.
-    const slots = Math.max(10, data.length);
-    const step = SPARK_W / (slots - 1);
-    const x = (i: number) => i * step;
-    const y = (v: number) => SPARK_H - 4 - (v / maxVal) * (SPARK_H - 8);
-
-    // Linie in Segmente aufteilen: verlorene Pakete unterbrechen die Linie.
-    let segment: string[] = [];
-    const flush = () => {
-      if (segment.length > 1) {
-        const area = document.createElementNS(SVG_NS, "path");
-        const first = segment[0].split(",")[0];
-        const lastX = segment[segment.length - 1].split(",")[0];
-        area.setAttribute("d", `M${first},${SPARK_H} L${segment.join(" L")} L${lastX},${SPARK_H} Z`);
-        area.setAttribute("class", "spark-area");
-        svg.append(area);
-        const line = document.createElementNS(SVG_NS, "polyline");
-        line.setAttribute("points", segment.join(" "));
-        line.setAttribute("class", "spark-line");
-        svg.append(line);
-      } else if (segment.length === 1) {
-        const [cx, cy] = segment[0].split(",");
-        const dot = document.createElementNS(SVG_NS, "circle");
-        dot.setAttribute("cx", cx);
-        dot.setAttribute("cy", cy);
-        dot.setAttribute("r", "2.5");
-        dot.setAttribute("class", "spark-dot");
-        svg.append(dot);
+    const cells = blockGraph(data, GRAPH_ROWS);
+    const valid = data.filter((v): v is number => v !== null);
+    // Achsenbeschriftung rechts: oben max, unten min
+    const labels = valid.length ? [`${Math.max(...valid)} ms`, ...Array(GRAPH_ROWS - 2).fill(""), `${Math.min(...valid)} ms`] : [];
+    const lines = cells.map((row, i) => {
+      const line = h("div", { class: "graph-row" });
+      // Aufeinanderfolgende Zeichen gleicher Art zu einem Textstück zusammenfassen
+      let buf = "";
+      let lostRun = false;
+      const flush = () => {
+        if (buf) line.append(lostRun ? tag(buf, "err") : buf);
+        buf = "";
+      };
+      for (const c of row) {
+        if (c.lost !== lostRun) {
+          flush();
+          lostRun = c.lost;
+        }
+        buf += c.ch;
       }
-      segment = [];
-    };
-    data.forEach((v, i) => {
-      if (v === null) {
-        flush();
-        const mark = document.createElementNS(SVG_NS, "line");
-        mark.setAttribute("x1", String(x(i)));
-        mark.setAttribute("x2", String(x(i)));
-        mark.setAttribute("y1", "0");
-        mark.setAttribute("y2", String(SPARK_H));
-        mark.setAttribute("class", "spark-lost");
-        svg.append(mark);
-      } else {
-        segment.push(`${x(i).toFixed(1)},${y(v).toFixed(1)}`);
-      }
+      flush();
+      line.append(h("span", { class: "dim" }, " ".repeat(GRAPH_POINTS - row.length + 1) + (labels[i] ?? "")));
+      return line;
     });
-    flush();
+    replaceChildren(graph, ...lines);
   };
 
   // Schnellwahl: Gateway/DNS aus den Adapterdaten, plus feste Ziele.
@@ -179,22 +147,16 @@ export function createTests(): HTMLElement {
     const a = primaryAdapter();
     const gw = a?.gateways.find((g) => g.includes(".")) ?? a?.gateways[0];
     const dns = a?.dnsServers.find((d) => d.includes(".")) ?? a?.dnsServers[0];
-    const btn = (label: string, target: string | undefined, hint?: string) =>
-      h(
-        "button",
-        {
-          class: "chip",
-          type: "button",
-          disabled: !target,
-          title: target ? `${hint ? hint + ": " : ""}${target}` : `${label}: nicht gefunden`,
-          onclick: () => target && quickPing(target),
-        },
-        label,
-        target && hint ? h("span", { class: "chip-sub" }, target) : null,
-      );
+    const btn = (label: string, target: string | undefined, hint?: string) => {
+      const b = tbutton(label, {
+        title: target ? `${hint ? hint + ": " : ""}${target}` : `${label}: nicht gefunden`,
+        onclick: () => target && void quickPing(target),
+      });
+      b.disabled = !target;
+      return b;
+    };
     replaceChildren(
       quick,
-      h("span", { class: "muted small" }, "Schnellwahl:"),
       btn("Gateway", gw, "Standardgateway"),
       btn("DNS-Server", dns, "DNS-Server"),
       btn("1.1.1.1", "1.1.1.1"),
@@ -209,15 +171,16 @@ export function createTests(): HTMLElement {
     const target = input.value.trim();
     const invalid = validateTarget(target);
     if (invalid) {
-      toast(invalid, "error");
-      status.textContent = invalid;
+      setStatus(invalid, "err");
+      status(invalid, "error");
       input.focus();
       return;
     }
 
     stats = new PingStats();
     renderStats();
-    status.textContent = `Ping auf ${target} läuft …`;
+    setStatus(`läuft auf ${target} …`, "ok");
+    status(`ping ${target} läuft …`);
     const command = { kind: "ping" as const, target, count: unlimited ? null : 4 };
 
     try {
@@ -226,8 +189,8 @@ export function createTests(): HTMLElement {
       });
     } catch (err) {
       const msg = errorText(err);
-      toast(msg, "error");
-      status.textContent = msg;
+      setStatus(msg, "err");
+      status(msg, "error");
       return;
     }
     renderButton();
@@ -237,13 +200,15 @@ export function createTests(): HTMLElement {
     renderButton();
 
     if (result.cancelled) {
-      status.textContent = `Gestoppt – ${stats.sent} gesendet, ${stats.received} empfangen.`;
+      setStatus(`gestoppt – ${stats.sent} gesendet, ${stats.received} empfangen`);
+      status("Ping gestoppt");
     } else if (stats.received === 0) {
       const msg = explainFailure(command, result.exitCode, result.lines, false);
-      status.textContent = msg;
-      toast(msg, "error");
+      setStatus(msg, "err");
+      status(msg, "error");
     } else {
-      status.textContent = `Fertig – ${stats.sent} gesendet, ${stats.received} empfangen, ${stats.lossPercent} % Verlust.`;
+      setStatus(`fertig – ${stats.lossPercent} % Verlust`, stats.lost > 0 ? "err" : "ok");
+      status(`Ping ${target}: ${stats.received}/${stats.sent} Antworten`, stats.lost > 0 ? "error" : "ok");
     }
   }
 
@@ -256,7 +221,7 @@ export function createTests(): HTMLElement {
       await h0.cancel();
       await h0.done; // warten, bis der Prozess wirklich beendet ist
     } catch (err) {
-      toast(errorText(err), "error");
+      status(errorText(err), "error");
     } finally {
       stopping = false;
       renderButton();
@@ -265,11 +230,13 @@ export function createTests(): HTMLElement {
 
   async function quickPing(target: string): Promise<void> {
     input.value = target;
+    updateHeading();
     if (handle) await stop();
     void start();
   }
 
   startBtn.addEventListener("click", () => void (handle ? stop() : start()));
+  input.addEventListener("input", updateHeading);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") void (handle ? stop() : start());
   });
@@ -278,5 +245,6 @@ export function createTests(): HTMLElement {
   renderQuick();
   renderButton();
   renderStats();
+  updateHeading();
   return view;
 }

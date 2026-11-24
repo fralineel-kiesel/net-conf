@@ -1,7 +1,7 @@
 // Dialog "Als Administrator neu starten" – wird von mehreren Stellen genutzt.
 import { backend, errorText, isTauri } from "../api";
 import { confirmDialog } from "./modal";
-import { toast } from "./toast";
+import { status } from "./statusbar";
 
 export async function askRestartAsAdmin(reason?: string): Promise<void> {
   const ok = await confirmDialog({
@@ -14,8 +14,8 @@ export async function askRestartAsAdmin(reason?: string): Promise<void> {
   if (!ok) return;
   try {
     await backend.restartAsAdmin();
-    if (!isTauri) toast("Mock: Neustart als Administrator simuliert", "info");
+    if (!isTauri) status("Mock: Neustart als Administrator simuliert");
   } catch (err) {
-    toast(errorText(err), "error");
+    status(errorText(err), "error");
   }
 }

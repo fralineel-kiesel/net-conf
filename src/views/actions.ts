@@ -5,18 +5,18 @@ import { explainFailure } from "../messages";
 import { onStateChange, refreshAll, setState, state } from "../state";
 import type { NetCommand } from "../types";
 import { askRestartAsAdmin } from "../ui/admin";
-import { h, icon, type IconName } from "../ui/dom";
+import { h } from "../ui/dom";
 import { confirmDialog } from "../ui/modal";
-import { toast } from "../ui/toast";
+import { status } from "../ui/statusbar";
+import { kvRow, panel, prompt, tag, tbutton } from "../ui/widgets";
 
 interface ActionDef {
   kind: "release" | "renew" | "flushDns" | "registerDns";
   title: string;
   command: string;
   description: string;
-  icon: IconName;
   needsAdmin: boolean;
-  /** Gilt der Adapter-Filter für diese Aktion? */
+  /** Gilt die Adapter-Auswahl für diese Aktion? */
   perAdapter: boolean;
   success: string;
 }
@@ -27,7 +27,6 @@ const ACTIONS: ActionDef[] = [
     title: "IP freigeben",
     command: "ipconfig /release",
     description: "Gibt die per DHCP bezogene IPv4-Adresse zurück. Die Verbindung wird getrennt.",
-    icon: "unplug",
     needsAdmin: true,
     perAdapter: true,
     success: "IP-Adresse freigegeben",
@@ -37,7 +36,6 @@ const ACTIONS: ActionDef[] = [
     title: "IP erneuern",
     command: "ipconfig /renew",
     description: "Fordert beim DHCP-Server eine neue IPv4-Adresse an. Kann einige Sekunden dauern.",
-    icon: "refresh",
     needsAdmin: true,
     perAdapter: true,
     success: "IP-Adresse erneuert",
@@ -47,7 +45,6 @@ const ACTIONS: ActionDef[] = [
     title: "DNS-Cache leeren",
     command: "ipconfig /flushdns",
     description: "Löscht zwischengespeicherte DNS-Einträge. Hilft, wenn Webseiten auf alte Adressen zeigen.",
-    icon: "eraser",
     needsAdmin: false,
     perAdapter: false,
     success: "DNS-Cache geleert",
@@ -57,60 +54,60 @@ const ACTIONS: ActionDef[] = [
     title: "DNS neu registrieren",
     command: "ipconfig /registerdns",
     description: "Erneuert alle DHCP-Leases und registriert den Computernamen neu im DNS.",
-    icon: "upload",
     needsAdmin: true,
     perAdapter: false,
     success: "DNS-Registrierung gestartet",
   },
 ];
 
+// Alle Button-Beschriftungen gleich breit, damit die Klammern untereinander stehen.
+const LABEL_WIDTH = Math.max(...ACTIONS.map((a) => a.title.length));
+
 export function createActions(): HTMLElement {
-  const select = h("select", { class: "select", id: "adapter-select" });
+  const select = h("select", { class: "tselect", id: "adapter-select", "aria-label": "Adapter" });
   let running: ActionDef["kind"] | null = null;
 
-  const adminBanner = h(
+  const adminNote = h(
     "div",
-    { class: "banner" },
-    icon("shield"),
-    h("span", {}, "Net-Conf läuft ohne Administratorrechte. Gesperrte Aktionen sind mit einem Schloss markiert."),
-    h("button", { class: "btn btn-small btn-primary", onclick: () => askRestartAsAdmin() }, "Als Administrator neu starten"),
+    { class: "note" },
+    tag("!", "err"),
+    " Net-Conf läuft als ",
+    h("span", { class: "plain" }, "[USER]"),
+    ". Aktionen mit (Admin nötig) sind gesperrt.  ",
+    tbutton("Als Administrator neu starten", { onclick: () => void askRestartAsAdmin() }),
   );
 
-  const buttons = new Map<ActionDef["kind"], HTMLButtonElement>();
-  const cards = ACTIONS.map((def) => {
-    const btn = h("button", { class: "btn btn-primary action-btn", onclick: () => runAction(def) });
-    buttons.set(def.kind, btn);
-    return h(
-      "article",
-      { class: "card action-card" },
-      h("div", { class: "action-icon" }, icon(def.icon)),
+  const rows = ACTIONS.map((def) => {
+    const btn = tbutton(def.title.padEnd(LABEL_WIDTH), { onclick: () => void runAction(def) });
+    const note = h("span", { class: "action-note dim" });
+    const row = h(
+      "div",
+      { class: "action-row" },
+      btn,
+      note,
       h(
         "div",
-        { class: "action-text" },
-        h("h2", {}, def.title),
-        h("code", { class: "cmd" }, def.command, def.perAdapter ? h("span", { class: "muted" }, " [Adapter]") : null),
-        h("p", { class: "muted small" }, def.description),
+        { class: "action-info" },
+        h("div", { class: "plain" }, def.command, def.perAdapter ? h("span", { class: "dim" }, " [Adapter]") : null),
+        h("div", { class: "dim" }, def.description),
       ),
-      btn,
     );
+    return { def, btn, note, row };
   });
+
+  const p = panel(
+    "IPCONFIG",
+    {},
+    kvRow("Adapter", h("span", { class: "select-wrap" }, select), h("span", { class: "dim" }, "gilt für freigeben/erneuern")),
+    adminNote,
+    h("div", { class: "action-list" }, ...rows.map((r) => r.row)),
+  );
 
   const view = h(
     "section",
     { class: "view", "data-view": "actions" },
-    h(
-      "div",
-      { class: "view-header" },
-      h("div", {}, h("h1", {}, "Aktionen"), h("p", { class: "muted" }, "Häufige ipconfig-Befehle per Klick. Die Ausgabe erscheint in der Konsole.")),
-      h(
-        "div",
-        { class: "view-tools" },
-        h("label", { class: "field-label", for: "adapter-select" }, "Adapter (für freigeben/erneuern)"),
-        select,
-      ),
-    ),
-    adminBanner,
-    h("div", { class: "action-grid" }, ...cards),
+    prompt("ipconfig [/release | /renew | /flushdns | /registerdns]").el,
+    p.el,
   );
 
   // --- Darstellung aktualisieren ------------------------------------------
@@ -125,19 +122,19 @@ export function createActions(): HTMLElement {
   };
 
   const renderButtons = () => {
-    adminBanner.hidden = state.isAdmin || state.loading;
-    for (const def of ACTIONS) {
-      const btn = buttons.get(def.kind)!;
+    adminNote.hidden = state.isAdmin || state.loading;
+    for (const { def, btn, note } of rows) {
       const locked = def.needsAdmin && !state.isAdmin;
-      btn.replaceChildren();
-      if (running === def.kind) btn.append(h("span", { class: "spinner" }), "Läuft …");
-      else if (locked) btn.append(icon("lock"), "Admin nötig");
-      else btn.append(icon("play"), "Ausführen");
+      btn.textContent = running === def.kind ? "läuft …".padEnd(LABEL_WIDTH) : def.title.padEnd(LABEL_WIDTH);
+      // Gesperrt (kein Admin): klickbar, bietet Neustart an. Belegt: gedimmt mit [x].
+      btn.disabled = state.busy && running !== def.kind;
       btn.classList.toggle("locked", locked);
-      btn.disabled = state.busy;
+      note.textContent = running === def.kind ? "" : locked ? "(Admin nötig)" : btn.disabled ? "[x]" : "";
       btn.title = locked
         ? "Dafür werden Administratorrechte benötigt. Klicken, um Net-Conf als Administrator neu zu starten."
-        : def.command;
+        : btn.disabled
+          ? "Gesperrt, solange ein anderer Befehl läuft"
+          : def.command;
     }
   };
 
@@ -173,17 +170,18 @@ export function createActions(): HTMLElement {
 
     running = def.kind;
     setState({ busy: true });
+    status(`${def.command} läuft …`);
     try {
       const handle = await startCommand(command);
       const result = await handle.done;
-      if (result.exitCode === 0) toast(def.success, "success");
-      else toast(explainFailure(command, result.exitCode, result.lines, state.isAdmin), "error");
+      if (result.exitCode === 0) status(def.success, "ok");
+      else status(explainFailure(command, result.exitCode, result.lines, state.isAdmin), "error");
     } catch (err) {
-      toast(errorText(err), "error");
+      status(errorText(err), "error");
     } finally {
       running = null;
       setState({ busy: false });
-      // Nach release/renew haben sich die Adressen geändert → Karten neu laden.
+      // Nach release/renew haben sich die Adressen geändert → Panels neu laden.
       if (def.kind === "release" || def.kind === "renew") await refreshAll();
     }
   }

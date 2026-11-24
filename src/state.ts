@@ -1,5 +1,6 @@
 // Globaler App-Zustand – bewusst simpel: ein Objekt + Änderungs-Listener.
 import { backend } from "./api";
+import { prefs } from "./ui/dom";
 import type { AdapterInfo } from "./types";
 
 export interface AppState {
@@ -10,6 +11,8 @@ export interface AppState {
   /** true, solange ein Befehl aus "Aktionen" läuft */
   busy: boolean;
   error: string | null;
+  /** Schalter "Getrennte Adapter ausblenden" (wird gespeichert) */
+  hideDisconnected: boolean;
 }
 
 export const state: AppState = {
@@ -19,6 +22,7 @@ export const state: AppState = {
   loading: true,
   busy: false,
   error: null,
+  hideDisconnected: prefs.get("hideDisconnected", "1") === "1",
 };
 
 const listeners = new Set<() => void>();
