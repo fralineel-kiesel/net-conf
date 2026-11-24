@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Net-Conf Logo: Netzwerk-Topologie.
+       Ein zentraler Knoten, verbunden mit drei äusseren Knoten (oben links,
+       oben rechts, unten). Alle Knoten sind Quadrate (Pixel-/Terminal-Look).
+       Nur Cyan auf fast Schwarz: kein Glow, kein Verlauf, kein heller Rand.
+       Dicke Linien + viel Abstand, damit es auch bei 16x16 lesbar bleibt. -->
+  <rect width="1024" height="1024" rx="80" fill="#0B0E12"/>
+  <g stroke="#22D3EE" stroke-width="88">
+    <line x1="512" y1="464" x2="208" y2="208"/>
+    <line x1="512" y1="464" x2="816" y2="208"/>
+    <line x1="512" y1="464" x2="512" y2="848"/>
+  </g>
+  <g fill="#22D3EE">
+    <rect x="112" y="112" width="192" height="192"/>
+    <rect x="720" y="112" width="192" height="192"/>
+    <rect x="416" y="752" width="192" height="192"/>
+    <rect x="400" y="352" width="224" height="224"/>
+  </g>
+</svg>
