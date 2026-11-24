@@ -1,6 +1,6 @@
 # Net-Conf
 
-Netzwerk-Helfer für Windows 11 im Terminal-Look.
+Netzwerk-Helfer für Windows 11 im Terminal-Look (TUI wie htop/btop – aber mit Maus bedienbar).
 
 Net-Conf zeigt die Infos von `ipconfig /all` übersichtlich als Karten an
 und bietet Buttons für häufige Netzwerk-Befehle:
@@ -9,6 +9,8 @@ und bietet Buttons für häufige Netzwerk-Befehle:
 - **Aktionen** – `ipconfig /release`, `/renew`, `/flushdns`, `/registerdns` per Klick.
 - **Tests** – Ping mit Live-Statistik und Latenz-Verlauf.
 - **Konsole** – die Rohausgabe aller Befehle live mitlesen.
+
+Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests · **F5** Neu laden.
 
 Gebaut mit [Tauri v2](https://tauri.app) (Rust) und reinem TypeScript – klein, schnell, ohne Installation lauffähig.
 
@@ -47,6 +49,16 @@ Ergebnis:
 - `src-tauri/target/release/bundle/nsis/*-setup.exe` (Installer)
 
 **Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte.
+
+## Logo / Icons
+
+Die Quelle ist `assets/logo.svg`. Nach Änderungen die Icons neu erzeugen:
+
+```bash
+npx tauri icon assets/logo.svg -o src-tauri/icons
+```
+
+(Die erzeugten Ordner `android/` und `ios/` werden nicht gebraucht.)
 
 ## Release erstellen
 

@@ -40,7 +40,10 @@ src/
   ping.ts      sprachunabhängiger Ping-Parser + Statistik
   messages.ts  verständliche deutsche Fehlermeldungen
   views/       overview.ts, actions.ts, tests.ts
-  ui/          dom.ts (h()-Helfer, Icons, Clipboard), console.ts, toast.ts, modal.ts, admin.ts
+  ui/          dom.ts (h()-Helfer, Logo, Clipboard), widgets.ts (TUI-Bausteine),
+               statusbar.ts (Rückmeldungen statt Toasts), console.ts, modal.ts,
+               blockgraph.ts (Latenz-Graph aus Blockzeichen), admin.ts
+assets/logo.svg  Quelle des Logos (Icons + Inline-SVG in der Kopfzeile)
 ```
 
 ## Regeln (Sicherheit & Robustheit)
@@ -55,12 +58,54 @@ src/
 - Die runId vergibt das Frontend, damit Events schon vor der invoke-Antwort zugeordnet werden können.
 - Konservativ coden: lieber einfach und sicher kompilierend als clever.
 
-## Design-Regeln
-- Dunkler Hintergrund (`--bg: #0a0d12`), **ein** Akzent: Cyan `#22d3ee`. Status: grün `#34d399`, grau.
-- Schrift: `Cascadia Mono` → `Consolas` → monospace. **Keine Web-Fonts** (offline!).
-- Abgerundete Karten, dezente Hover-/Glow-Effekte, Animationen **< 200 ms**, nicht überladen.
-- Farben nur über CSS-Variablen in `src/styles.css`.
-- Mindestfenster 900×600 muss gut aussehen.
+## Design-Regeln: TUI-Look (wie htop, btop, lazygit)
+Die App soll wie eine Terminal-Oberfläche wirken, bleibt aber per Maus bedienbar.
+**Kein** „KI-Webseiten-Look“ (runde Karten, Glow, Pillen, Punkte, Toggle-Schalter).
+
+Verboten:
+- `border-radius` (überall 0), `box-shadow`, `text-shadow`, Glow, `filter`, Verläufe.
+- Transitions und Animationen – ein Terminal reagiert sofort.
+  **Einzige Ausnahme:** der blinkende Block-Cursor `.cursor` (hart an/aus, `steps(1)`).
+- Pillen-Badges, Toggle-Schalter, Toasts, Web-App-Icons, Status-Punkte.
+- Fettdruck, mehrere Schriftgrössen, Letter-Spacing.
+
+Farben (nur über CSS-Variablen in `src/styles.css`):
+- Hintergrund fast schwarz `--bg #0b0e12`, Schrift hellgrau `--text`.
+- Labels gedimmt `--dim`, Werte/Titel hell `--bright`.
+- **Eine** Akzentfarbe Cyan `--accent #22d3ee` – NUR für Interaktives (Hover, Fokus, aktiver Menüpunkt, Auswahl).
+- Grün `--ok` / Rot `--err` NUR als **Textfarbe für Status-Wörter** (`.tag-ok`, `.tag-err`), nie als Punkt, Linie, Rahmen oder Hintergrund.
+- Linien: 1px dunkelgrau `--line`. Statusleiste etwas heller (`--bar`).
+
+Bausteine (`src/ui/widgets.ts`) – immer diese verwenden:
+- `panel()` – eckiger Kasten, Titel sitzt IN der oberen Linie (links Titel, rechts z. B. `[ONLINE] [DHCP]`).
+- `tbutton()` – `[ Text ]`; Hover/Fokus = Farben invertieren (Cyan-Hintergrund, dunkle Schrift).
+  Deaktiviert = gedimmt + `[x]`, ohne Adminrechte = gedimmt + `(Admin nötig)`.
+- `checkbox()` – `[x] Label` / `[ ] Label`; `radio()` – `(*) A  ( ) B`.
+- `kvRow()` – `Label . . . . : Wert` (Punkte-Füller per CSS, Label-Spalte 18ch).
+- `prompt()` – Überschrift im Prompt-Stil `$ ipconfig /all █`.
+- `tag()` – Status als Text in eckigen Klammern: `[ONLINE]`, `[OFFLINE]`, `[DHCP]`, `[STATISCH]`, `[ADMIN]`, `[USER]`.
+- Rückmeldungen (z. B. `kopiert: <Wert>`, Fehler) über `status()` in die Statusleiste – keine Toasts.
+
+Layout:
+- Kopfzeile: eine Textzeile `[Logo] net-conf @ HOST … [ADMIN]|[USER] [ Neu laden ] (F5)`.
+- Seitenleiste: Textmenü mit `>`-Marker für den aktiven Punkt, Tastenkürzel F1/F2/F3.
+- Hauptbereich, darunter Konsole (gleiches Panel-Design), ganz unten Statusleiste (wie vim/tmux).
+- Schrift: `Cascadia Mono` → `Consolas` → monospace, **13px** überall. **Keine Web-Fonts** (offline!).
+- Mindestfenster 900×600 muss gut aussehen (Adapter-Panels zweispaltig).
+- Prüfen: Screenshots im Mock-Modus + Audit, das per `getComputedStyle` Rundungen,
+  Schatten, Verläufe, Transitions und Grün/Rot als Rahmen/Hintergrund sucht.
+
+## Logo
+- Konzept: **Netzwerk-Topologie** – ein zentraler Knoten, verbunden mit drei äusseren
+  Knoten (oben links, oben rechts, unten) durch gerade, dicke Linien.
+- Alle Knoten sind **Quadrate** (Pixel-Look), gefüllt. Cyan `#22D3EE` auf `#0B0E12`.
+- Hintergrund: Quadrat mit minimaler Rundung (rx 80 von 1024 ≈ 8 %). Kein Glow, kein Verlauf, kein heller Rand.
+- Muss bei 16×16 und 32×32 lesbar bleiben → wenige Elemente, viel Abstand.
+- Quelle: `assets/logo.svg`. Icons neu erzeugen **direkt aus dem SVG**
+  (`npx tauri icon assets/logo.svg -o src-tauri/icons`, danach `android/` und `ios/` löschen) –
+  das Herunterskalieren eines PNG erzeugt dunkle Ränder bei 16/32 px.
+  `app-icon.png` ist nur eine 1024er-Vorschau.
+- Die Kopfzeile bindet dasselbe SVG per `?raw`-Import inline ein.
 
 ## Konventionen
 - Commits: klein, englisch, sprechend (z. B. „Add ping sparkline“). Branch der Session nutzen, PR macht der Nutzer.
@@ -71,6 +116,7 @@ src/
 
 ## Phasenplan
 - **Phase 1 (fertig):** Grundgerüst, Adapter-Übersicht, ipconfig-Aktionen, Ping, Konsole, Admin-Erkennung, CI.
+- **Phase 1.5 (fertig):** Design-Umbau auf TUI-Look, neues Netzwerk-Logo. Funktionen unverändert.
 - **Phase 2 (Ideen, noch NICHT bauen ohne Auftrag):**
   - Traceroute (`tracert`) mit Hop-Liste
   - DNS-Abfrage (`nslookup` bzw. Windows-DNS-API) mit Record-Typen
