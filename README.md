@@ -12,10 +12,12 @@ und bietet Buttons für häufige Netzwerk-Befehle:
   - **Monitor** – bis zu 20 Ziele dauerhaft anpingen (1–10 s), mit Status UP/DOWN, Verlust, Mini-Verlauf und Ausfall-Log. Läuft im Hintergrund weiter, auch wenn man die Seite wechselt.
 - **Tabellen** – ARP-Tabelle und Routing-Tabelle mit Filter.
 - **LAN** – Scanner für das eigene Subnetz (IP, Hostname, MAC, Latenz) und **Wake-on-LAN** mit Geräteliste. Gescannt werden nur eigene private Netze bis /22.
+- **WLAN** – aktuelle Verbindung live (Signal, Kanal/Band, Funkstandard, Datenraten) mit Signal-Graph der letzten Minute, Netze in der Umgebung (scannen, nach Signal sortiert), Kanal-Belegung, gespeicherte Profile (verbinden, vergessen) und **Verbinden mit neuen Netzen** (WPA2/WPA3/offen, auch versteckte).
+- **Traffic** – Live-Datenrate eines Adapters (Mbit/s und MB/s, Spitze, Summe, zwei Graphen) und **Verbindungen** mit Prozess (wie `netstat -ano`) mit Filter, Sortierung und Reverse-DNS auf Klick.
 - **Einstellungen** – Akzentfarbe, Standard-Ping-Ziel, Konsolen-Höhe, Start-Ansicht.
 - **Konsole** – die Rohausgabe aller Befehle live mitlesen.
 
-Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 = nächster Reiter) · **F4** Tabellen · **F6** LAN (nochmal F6 = nächster Reiter) · **F10** Einstellungen · **F5** Neu laden.
+Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 = nächster Reiter) · **F4** Tabellen · **F6** LAN (nochmal F6 = nächster Reiter) · **F7** WLAN · **F8** Traffic (nochmal F8 = nächster Reiter) · **F10** Einstellungen · **F5** Neu laden.
 
 ### Hinweise
 
@@ -25,6 +27,10 @@ Tastenkürzel: **F1** Übersicht · **F2** Aktionen · **F3** Tests (nochmal F3 
 - **Pings ohne Adminrechte:** Health-Check, Monitor, LAN-Scan und WoL-Check pingen direkt über die Windows-API (kein `ping.exe`, nur IPv4).
 - **LAN-Scanner:** Nur im eigenen bzw. erlaubten Netz verwenden. Es gibt bewusst kein Feld für beliebige IP-Bereiche.
 - **Wake-on-LAN:** Das Zielgerät muss WoL aktiviert haben (BIOS/UEFI und Netzwerkkarte). „Gesendet“ heisst nicht „aufgewacht“.
+- **WLAN verbinden:** Net-Conf legt ein normales Windows-WLAN-Profil an (wie beim Verbinden über Windows). Das Passwort ist beim Tippen sichtbar, geht nur an Windows und wird von Net-Conf nirgends gespeichert oder protokolliert. Klappt die Verbindung nicht (z. B. falsches Passwort), bleibt kein Profil mit dem falschen Passwort zurück. Firmen-WLANs mit 802.1X/Anmeldung werden nicht unterstützt – dafür bitte über Windows verbinden.
+- **WLAN-Namen fehlen?** Ohne Standortzugriff blendet Windows die SSIDs aus (siehe oben).
+- **Traffic und WLAN messen nur, solange die Seite offen ist** – im Hintergrund läuft nichts.
+- **Verbindungen:** Ohne Adminrechte zeigt Windows bei manchen Prozessen nur „(kein Zugriff)“. Prozesse beenden kann Net-Conf bewusst nicht.
 - **Gespeicherte Daten:** Monitor-Ziele und WoL-Geräte liegen in `%APPDATA%\Net-Conf\config.json`. Ist die Datei beschädigt, legt Net-Conf eine Sicherung `config.json.bak` an und startet mit Standardwerten.
 
 Gebaut mit [Tauri v2](https://tauri.app) (Rust) und reinem TypeScript – klein, schnell, ohne Installation lauffähig.
@@ -63,7 +69,7 @@ Ergebnis:
 - `src-tauri/target/release/net-conf.exe` (portabel)
 - `src-tauri/target/release/bundle/nsis/*-setup.exe` (Installer)
 
-**Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte; mit `?fail=renew` scheitert jeder Aktions-Schritt mit „renew“ (zum Testen der Fehlermeldungen); mit `?net=dnsfail` (oder `offline`, `apipa`, `nogateway`, `noicmp`) zeigt der Health-Check typische Fehlerfälle.
+**Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte; mit `?fail=renew` scheitert jeder Aktions-Schritt mit „renew“ (zum Testen der Fehlermeldungen); mit `?net=dnsfail` (oder `offline`, `apipa`, `nogateway`, `noicmp`) zeigt der Health-Check typische Fehlerfälle; `?wifi=none`, `?wifi=multi` und `?wifi=location` spielen WLAN-Randfälle durch, `?conns=many` liefert über 1000 Verbindungen.
 
 **ASCII-Titel neu erzeugen** (nur nötig, wenn er sich ändern soll): `pip install pyfiglet`, dann `python scripts/make-title.py`.
 
