@@ -20,8 +20,10 @@ Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** komme
 - Der echte Build läuft **nur in GitHub Actions** (`.github/workflows/build.yml`, `windows-latest`).
 - Lokal prüfbar:
   - `npm run build` – Typecheck + Frontend-Build
-  - `npm run dev` – UI im Browser mit Mock-Daten (`src/mock.ts`), `?admin=1` simuliert Adminrechte
-  - `cd src-tauri && cargo test` – Rust-Tests (Validierung, DNS-Parser, Port-Test). Unter Linux braucht das `libwebkit2gtk-4.1-dev`.
+  - `npm test` – Test der Ping-Graph-Skala (`scripts/pingscale.test.ts`, Node ≥ 22, ohne Test-Framework)
+  - `npm run dev` – UI im Browser mit Mock-Daten (`src/mock.ts`), `?admin=1` simuliert Adminrechte,
+    `?fail=renew` lässt jeden Aktions-Schritt scheitern, dessen Befehl „renew“ enthält (Fehlerpfad testen)
+  - `cd src-tauri && cargo test` – Rust-Tests (Validierung, Aktions-Abläufe, DNS-Parser, Port-Test). Unter Linux braucht das `libwebkit2gtk-4.1-dev`.
     `cargo test -- --ignored` macht zusätzlich echte DNS-Abfragen (braucht Netz; in der Cloud-Sandbox
     werden nur freigegebene Hosts wie github.com aufgelöst).
   - `cd src-tauri && cargo clippy --target x86_64-pc-windows-msvc` – **typprüft den Windows-Code**
@@ -34,7 +36,9 @@ Entscheidungen kurz erklären, nicht-offensichtlichen Code **auf Deutsch** komme
 src-tauri/src/
   lib.rs       Tauri-Setup, Commands registrieren, Kindprozesse beim Beenden killen
   adapters.rs  Adapter via GetAdaptersAddresses + GetAdaptersInfo (Lease-Zeiten), Mock für Nicht-Windows
-  runner.rs    Whitelist-Befehle (NetCommand), Validierung, Prozess-Start, Streaming, Abbruch
+  runner.rs    Ablauf-Executor (Schritte: Prozess/Warten), Ping/Tracert (NetCommand), Validierung,
+               Prozess-Start, Streaming, Abbruch
+  actions.rs   Whitelist der Aktionen (ActionId → feste Befehle/Abläufe), Adapter-Abgleich
   system.rs    Hostname, Admin-Erkennung (Token-Elevation), Neustart via ShellExecuteW "runas"
   dns.rs       eigener kleiner DNS-Client über UDP (wie nslookup), reines Rust, ohne unsafe
   porttest.rs  TCP-Connect-Test, parallel pro Port (offen/geschlossen/gefiltert)
@@ -44,24 +48,30 @@ src/
   main.ts      Layout, Navigation, Kopfzeile
   api.ts       Brücke zu Tauri – fällt auf mock.ts zurück, wenn keine Tauri-API da ist
   events.ts    Event-Verteiler (cmd-started / cmd-output / cmd-finished)
-  commands.ts  startCommand(): runId vergeben, Ausgabe sammeln, Promise bis Ende
+  commands.ts  startCommand()/startAction(): runId vergeben, Ausgabe sammeln, Promise bis Ende
+  actions.ts   Anzeige-Daten der Aktionen (Titel, Schritte, Tags, Bestätigungstexte) – auch für den Mock
   ping.ts      sprachunabhängiger Ping-Parser + Statistik
+  pingscale.ts Skala des Ping-Graphen (schöne Stufen + Hysterese)
   tracert.ts   sprachunabhängiger Traceroute-Parser (Hop-Zeilen: Nummer, 3× ms/*, Host)
   messages.ts  verständliche deutsche Fehlermeldungen
   settings.ts  Einstellungen (localStorage) + applySettings() → CSS-Variablen
-  views/       overview.ts (inkl. öffentliche IP, WLAN), actions.ts, tables.ts, settings.ts,
+  views/       overview.ts (ASCII-Titel, SYSTEM, öffentliche IP, WLAN), actions.ts, tables.ts, settings.ts,
                tests.ts (Reiter) + tests/ping.ts, tracert.ts, dns.ts, port.ts
   ui/          dom.ts (h()-Helfer, Logo, Clipboard), widgets.ts (TUI-Bausteine),
                statusbar.ts (Rückmeldungen statt Toasts), console.ts, modal.ts,
-               blockgraph.ts (Latenz-Graph aus Blockzeichen), admin.ts
+               latencygraph.ts (Ping-Graph auf Canvas), admin.ts
 assets/logo.svg  Quelle des Logos (Icons + Inline-SVG in der Kopfzeile)
+assets/title.txt ASCII-Titel der Übersicht (erzeugt von scripts/make-title.py)
 ```
 
 ## Regeln (Sicherheit & Robustheit)
 - **Nie** den Text von `ipconfig` parsen (sprachabhängig, Nutzer hat deutsches Windows) → Windows-API.
-- Frontend schickt **keine Befehlszeilen**, nur `NetCommand`-Objekte (Whitelist in `runner.rs`).
+- Frontend schickt **keine Befehlszeilen**, nur `NetCommand`-Objekte (Ping/Tracert, `runner.rs`)
+  oder eine **Aktions-ID** (`actions.rs`, siehe unten).
   Programm-Pfade (`%SystemRoot%\System32\…`) und Argumente baut nur das Backend. Keine Shell dazwischen.
 - Freie Eingaben (Ping-Ziel, Adaptername) streng validieren; Ziel darf nicht mit `-` beginnen.
+  Adapternamen nur akzeptieren, wenn sie **exakt** in der aktuellen Adapterliste vorkommen.
+  Ping-Anzahl nur aus `PING_COUNTS` (2, 4, 8, 16, 32) oder `null` = `ping -t`.
   Frontend-Validierung (`src/validate.ts`) ist nur Komfort – das Backend entscheidet.
 - Prozesse mit `CREATE_NO_WINDOW` starten; Ausgabe mit OEM-Codepage dekodieren
   (`MultiByteToWideChar(CP_OEMCP)` – `encoding_rs` kennt cp850 nicht).
@@ -99,11 +109,13 @@ Farben (nur über CSS-Variablen in `src/styles.css`):
 Bausteine (`src/ui/widgets.ts`) – immer diese verwenden:
 - `panel()` – eckiger Kasten, Titel sitzt IN der oberen Linie (links Titel, rechts z. B. `[ONLINE] [DHCP]`).
 - `tbutton()` – `[ Text ]`; Hover/Fokus = Farben invertieren (Cyan-Hintergrund, dunkle Schrift).
+- `choice()` – Auswahl als Reihe `[2] [4] [8] [∞]`, gewählte Option invertiert.
   Deaktiviert = gedimmt + `[x]`, ohne Adminrechte = gedimmt + `(Admin nötig)`.
 - `checkbox()` – `[x] Label` / `[ ] Label`; `radio()` – `(*) A  ( ) B`.
 - `kvRow()` – `Label . . . . : Wert` (Punkte-Füller per CSS, Label-Spalte 18ch).
 - `prompt()` – Überschrift im Prompt-Stil `$ ipconfig /all █`.
-- `tag()` – Status als Text in eckigen Klammern: `[ONLINE]`, `[OFFLINE]`, `[DHCP]`, `[STATISCH]`, `[ADMIN]`, `[USER]`.
+- `tag()` – Status als Text in eckigen Klammern: `[ONLINE]`, `[OFFLINE]`, `[DHCP]`, `[STATISCH]`, `[PRIMÄR]`,
+  `[ADMIN]`, `[USER]`, `[!]` (unterbricht/ändert das Netz, rot).
 - `tabs()` – Reiter `[Ping]  Traceroute  DNS` (aktiv/inaktiv gleich breit).
 - `table()` – Text-Tabelle mit ausgerichteten Spalten (Kopfzeile gedimmt, GROSS).
 - `copyable()` – Wert, der sich per Klick kopiert; `bar()` – Balken `██████░░░░`.
@@ -118,6 +130,60 @@ Layout:
 - Mindestfenster 900×600 muss gut aussehen (Adapter-Panels zweispaltig).
 - Prüfen: Screenshots im Mock-Modus + Audit, das per `getComputedStyle` Rundungen,
   Schatten, Verläufe, Transitions und Grün/Rot als Rahmen/Hintergrund sucht.
+
+## Aktionen (F2) – Whitelist über Aktions-IDs
+Das Frontend schickt nur `run_action(runId, action, adapter)`. Programme (immer `%SystemRoot%\System32\…`),
+Argumente und Reihenfolge stehen ausschliesslich in `src-tauri/src/actions.rs`. `src/actions.ts` enthält
+nur Anzeige-Daten (und dient dem Mock) – bei Änderungen **beide** Dateien anpassen.
+
+| Panel | ID | Ablauf | Tags |
+|---|---|---|---|
+| IP / DHCP | `release` | `ipconfig /release [Adapter]` | [ADMIN] [!] |
+| | `renew` | `ipconfig /renew [Adapter]` | [ADMIN] |
+| | `releaseRenew` | release → warten 2 s → renew | [ADMIN] [!] |
+| | `fullRefresh` | flushdns → release → warten 2 s → renew → registerdns | [ADMIN] [!] |
+| DNS | `flushDns` | `ipconfig /flushdns` | – |
+| | `displayDns` | `ipconfig /displaydns` | – |
+| | `registerDns` | `ipconfig /registerdns` | [ADMIN] |
+| | `dnsRefresh` | flushdns → registerdns | [ADMIN] |
+| Cache & Namen | `arpClear` | `arp -d *` | [ADMIN] |
+| | `nbtPurge` | `nbtstat -R` | [ADMIN] |
+| | `nbtReregister` | `nbtstat -RR` | [ADMIN] |
+| Adapter | `adapterRestart` | `netsh interface set interface "<Name>" admin=disabled` → 3 s → `admin=enabled` (nur mit Adapter) | [ADMIN] [!] |
+| Reparatur | `winsockReset` | `netsh winsock reset` (danach Neustart) | [ADMIN] [!] |
+| | `tcpipReset` | `netsh int ip reset` (danach Neustart) | [ADMIN] [!] |
+
+Regeln:
+- Adapter: `release/renew/releaseRenew/fullRefresh` optional (ohne = alle), `adapterRestart` Pflicht,
+  alle anderen lehnen einen Adapter ab. Der Name ist immer ein **eigenes Argument**.
+- netsh mit Positionsform (`set interface "<Name>" admin=…`), nicht `name="…"`: Rust quotet nur ganze
+  Argumente; Anführungszeichen mitten im Argument würden als `\"` maskiert.
+- Abläufe: Scheitert ein Schritt oder wird abgebrochen, laufen die restlichen Schritte nicht –
+  **ausser** `restore`-Schritten (renew, Adapter aktivieren), wenn vorher ein `disruptive`-Schritt
+  (release, deaktivieren) lief. Sonst stünde man ohne Netz da. Logik: `execute_steps` (mit Tests).
+- Events: `cmd-step` liefert Schrittmarker (`[1/3] ipconfig /release`), `cmd-finished` zusätzlich
+  `failedStep` (1-basiert) und `error`. Fehlermeldung nennt den Schritt, ausgewertet wird nur dessen Ausgabe.
+- [!]-Aktionen immer mit `confirmDialog({ danger: true })`. Nach IP-ändernden Aktionen `refreshAll()`.
+  Reparatur-Aktionen zeigen nach Erfolg „Neustart erforderlich“ (Dialog + Hinweis im Panel).
+- Vor neuen Aktionen prüfen, ob es sie schon gibt (z. B. Tabellen F4 zeigt ARP nur an).
+
+## Ping-Graph (Skala)
+- Balken proportional ab **0 ms** (fester Nullpunkt, nie ab dem Minimum). Jede Antwort mind. 1 Stufe hoch.
+- Obergrenze = nächste Stufe aus `[10, 20, 50, 100, 200, 500, 1000]` ms über dem Maximum der
+  **sichtbaren** Werte, mindestens 10 ms (über 1000: volle Sekunden).
+- Hysterese: wächst **sofort**; schrumpft erst, wenn das Maximum über **10 Messungen** in Folge
+  ≤ 80 % einer kleineren Stufe lag (`pingscale.ts`, Test: `npm test`).
+- 3 Textzeilen hoch = 24 Stufen, gezeichnet auf Canvas (keine Zeilenlücken), 1 Spalte = 1 Zeichen breit,
+  neueste Messung rechts. Zeitüberschreitung = rotes `×` auf der Grundlinie. Skala steht rechts daneben.
+- Die Statistik (gesendet/empfangen/Verlust, min/avg/max) wird nie geglättet.
+
+## ASCII-Titel (Übersicht)
+- Datei `assets/title.txt` (figlet-Font „slant“, 50×5 Zeichen). Neu erzeugen (nur Entwicklungswerkzeug):
+  `pip install pyfiglet` und `python scripts/make-title.py` (prüft max. 60×7).
+- Einbinden per `import … from "../../assets/title.txt?raw"` und `textContent` in ein `<pre>` –
+  **nie** als JS-String-Literal (Backslashes!) und nie per `innerHTML`. `.gitattributes` erzwingt LF.
+- Unter 56 Zeichen Breite (Container-Query) einzeilig `[ NET-CONF ]`. Farbe `--bright`, kein Akzent.
+- Untertitel mit `__APP_VERSION__` (liest `vite.config.ts` aus `package.json`).
 
 ## Logo
 - Konzept: **Netzwerk-Topologie** – ein zentraler Knoten, verbunden mit drei äusseren
@@ -143,6 +209,8 @@ Layout:
 - **Phase 1.5 (fertig):** Design-Umbau auf TUI-Look, neues Netzwerk-Logo. Funktionen unverändert.
 - **Phase 2 (fertig, v0.2.0):** Traceroute, DNS-Abfrage, Port-Test, öffentliche IP, ARP-/Routing-Tabelle,
   WLAN-Infos, Einstellungen.
+- **Phase 3 (fertig, v0.3.0):** ASCII-Titel + SYSTEM-Panel, primärer Adapter zuerst, Aktionen in Panels
+  mit Abläufen (Release + Renew u. a.), Ping-Anzahl wählbar, ruhiger Ping-Graph.
 - **Ideen für später (NICHT bauen ohne Auftrag):**
   - WLAN-Umgebung scannen (alle Netze mit Kanal/Signal, Kanalbelegung als Blockgrafik)
   - Netzwerk-Scan im eigenen Subnetz (Ping-Sweep, ARP)

@@ -5,9 +5,9 @@ Netzwerk-Helfer für Windows 11 im Terminal-Look (TUI wie htop/btop – aber mit
 Net-Conf zeigt die Infos von `ipconfig /all` übersichtlich als Karten an
 und bietet Buttons für häufige Netzwerk-Befehle:
 
-- **Übersicht** – ein Panel pro Adapter (IPv4/IPv6, Gateway, DNS, DHCP, Lease, MAC …), beim WLAN-Adapter zusätzlich SSID, Signal, Kanal/Band und Sicherheit. Öffentliche IP auf Knopfdruck. Klick auf einen Wert kopiert ihn.
-- **Aktionen** – `ipconfig /release`, `/renew`, `/flushdns`, `/registerdns` per Klick.
-- **Tests** – Ping mit Live-Statistik, Traceroute mit Hop-Tabelle, DNS-Abfrage (wie nslookup) und Port-Test.
+- **Übersicht** – Schnellüberblick (Hostname, primärer Adapter mit IP, Gateway, DNS) und ein Panel pro Adapter (IPv4/IPv6, Gateway, DNS, DHCP, Lease, MAC …), beim WLAN-Adapter zusätzlich SSID, Signal, Kanal/Band und Sicherheit. Öffentliche IP auf Knopfdruck. Klick auf einen Wert kopiert ihn.
+- **Aktionen** – in Gruppen: IP/DHCP (freigeben, erneuern, **Release + Renew**, Voller Refresh), DNS (Cache leeren/anzeigen, neu registrieren), ARP- und NetBIOS-Cache, Adapter neu starten, Winsock/TCP-IP zurücksetzen. Abläufe zeigen ihre Schritte und lassen sich abbrechen.
+- **Tests** – Ping (2–32 Pakete oder unbegrenzt) mit Live-Statistik und Latenz-Graph, Traceroute mit Hop-Tabelle, DNS-Abfrage (wie nslookup) und Port-Test.
 - **Tabellen** – ARP-Tabelle und Routing-Tabelle mit Filter.
 - **Einstellungen** – Akzentfarbe, Standard-Ping-Ziel, Konsolen-Höhe, Start-Ansicht.
 - **Konsole** – die Rohausgabe aller Befehle live mitlesen.
@@ -33,7 +33,7 @@ Gebaut mit [Tauri v2](https://tauri.app) (Rust) und reinem TypeScript – klein,
 
 > Windows SmartScreen warnt eventuell („Unbekannter Herausgeber“), weil die App nicht signiert ist: *Weitere Informationen → Trotzdem ausführen*.
 
-Für `IP freigeben/erneuern` und `DNS neu registrieren` braucht die App Administratorrechte. Net-Conf bietet dafür einen Button „Als Administrator neu starten“ an.
+Viele Aktionen (z. B. `IP freigeben/erneuern`, `DNS neu registrieren`, Caches leeren, Adapter neu starten) brauchen Administratorrechte – sie sind mit `[ADMIN]` markiert. Net-Conf bietet dafür einen Button „Als Administrator neu starten“ an.
 
 ## Selbst bauen
 
@@ -56,7 +56,9 @@ Ergebnis:
 - `src-tauri/target/release/net-conf.exe` (portabel)
 - `src-tauri/target/release/bundle/nsis/*-setup.exe` (Installer)
 
-**Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte.
+**Nur die Oberfläche ansehen (jedes Betriebssystem):** `npm run dev` und <http://localhost:1420> im Browser öffnen. Ohne Tauri läuft die App automatisch mit Testdaten („Mock-Modus“). Mit `?admin=1` in der URL tut sie so, als hätte sie Adminrechte; mit `?fail=renew` scheitert jeder Aktions-Schritt mit „renew“ (zum Testen der Fehlermeldungen).
+
+**ASCII-Titel neu erzeugen** (nur nötig, wenn er sich ändern soll): `pip install pyfiglet`, dann `python scripts/make-title.py`.
 
 ## Logo / Icons
 
