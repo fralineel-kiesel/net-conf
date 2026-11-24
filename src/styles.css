@@ -1150,3 +1150,54 @@ p {
 .pal-hint.tag-err {
   color: var(--err);
 }
+
+/* Kompaktmodus: nur Kopfzeile, Kompakt-Ansicht und Statusleiste */
+.compact-view {
+  display: none;
+}
+body.compact #app {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "top"
+    "main"
+    "status";
+}
+body.compact .sidebar,
+body.compact .console,
+body.compact .hide-compact,
+body.compact .sb-left,
+body.compact .sb-monitor {
+  display: none;
+}
+body.compact .main {
+  padding: calc(2rem / 13) 1ch calc(4rem / 13);
+}
+body.compact .main > .view:not(.compact-view) {
+  display: none !important;
+}
+body.compact .compact-view {
+  display: block;
+}
+/* Mock im Browser: Fenstergrösse des Kompaktmodus als Kasten */
+body.compact-sim #app {
+  width: 380px;
+  height: 260px;
+  border: 1px solid var(--line);
+}
+.compact-view .panel {
+  padding-bottom: calc(4rem / 13);
+}
+.compact-ping {
+  display: grid;
+  grid-template-columns: 8ch 6ch minmax(0, 1fr);
+  column-gap: 1ch;
+  align-items: center;
+}
+.compact-ms {
+  text-align: right;
+  white-space: pre;
+}
+.compact-actions {
+  margin-top: calc(4rem / 13);
+}

@@ -1,6 +1,8 @@
 // Einstiegspunkt: baut das Layout auf und verbindet alles.
 import "./styles.css";
-import { initBackend, isTauri } from "./api";
+import { backend, errorText, initBackend, isTauri } from "./api";
+import { events } from "./events";
+import { createCompact } from "./views/compact";
 import { loadConfig } from "./config";
 import { onStateChange, refreshAll, state } from "./state";
 import { createConsole } from "./ui/console";
@@ -9,7 +11,7 @@ import { dialogOpen } from "./ui/modal";
 import { applySettings, FONT_DEFAULT, setFontSize, settings, type ViewId } from "./settings";
 import { initUpdates } from "./ui/updates";
 import { createStatusbar, status } from "./ui/statusbar";
-import { tag, tbutton } from "./ui/widgets";
+import { tbutton } from "./ui/widgets";
 import { nav } from "./nav";
 import { registerCommand, registerCommands } from "./registry";
 import { paletteOpen, togglePalette } from "./ui/palette";
@@ -35,11 +37,11 @@ const NAV: { id: ViewId; label: string; key: string }[] = [
   { id: "settings", label: "Einstellungen", key: "F10" },
 ];
 
-/** Kopfzeile: "net-conf @ HOSTNAME ............ [ADMIN] [ Neu laden ] (F5)" */
-function buildHeader(): HTMLElement {
+/** Kopfzeile: "net-conf @ HOSTNAME ............ [ADMIN] [ Kompakt ] [ Neu laden ] (F5)" */
+function buildHeader(compactBtn: HTMLButtonElement): HTMLElement {
   const hostBtn = h("button", { class: "value host", type: "button", title: "Hostname kopieren" });
-  const admin = h("span", { class: "tag" });
-  const reloadBtn = tbutton("Neu laden", { title: "Adapter und Status neu laden (F5)", onclick: () => void reload() });
+  const admin = h("span", { class: "tag hide-compact" });
+  const reloadBtn = tbutton("Neu laden", { title: "Adapter und Status neu laden (F5)", onclick: () => void reload(), cls: "hide-compact" });
 
   hostBtn.addEventListener("click", async () => {
     if (!state.hostname) return;
@@ -49,7 +51,7 @@ function buildHeader(): HTMLElement {
   onStateChange(() => {
     hostBtn.textContent = state.hostname || "…";
     admin.textContent = state.isAdmin ? "[ADMIN]" : "[USER]";
-    admin.className = `tag ${state.isAdmin ? "tag-ok" : "tag-plain"}`;
+    admin.className = `tag hide-compact ${state.isAdmin ? "tag-ok" : "tag-plain"}`;
     admin.title = state.isAdmin ? "Läuft mit Administratorrechten" : "Läuft ohne Administratorrechte";
     reloadBtn.textContent = state.loading ? "lädt …" : "Neu laden";
     reloadBtn.disabled = state.loading;
@@ -61,10 +63,11 @@ function buildHeader(): HTMLElement {
     logo(),
     h("span", { class: "who" }, h("span", { class: "bright" }, "net-conf"), h("span", { class: "dim" }, " @ "), hostBtn),
     h("span", { class: "spacer" }),
-    !isTauri ? tag("[MOCK]", "dim") : null,
+    !isTauri ? h("span", { class: "tag tag-dim hide-compact" }, "[MOCK]") : null,
     admin,
+    compactBtn,
     reloadBtn,
-    h("span", { class: "dim" }, "(F5)"),
+    h("span", { class: "dim hide-compact" }, "(F5)"),
   );
 }
 
@@ -101,17 +104,50 @@ function main(): void {
     wifi,
     traffic,
   };
-  const mainEl = h("main", { class: "main" }, ...Object.values(views));
+  const compact = createCompact();
+  const mainEl = h("main", { class: "main" }, ...Object.values(views), compact.el);
   let currentView: ViewId | null = null;
+
+  // --- Kompaktmodus: Backend schaltet das Fenster, hier nur das Layout ----------------
+  let compactOn = false;
+  const compactBtn = tbutton("Kompakt", { title: "Kompaktmodus: kleines Fenster, immer im Vordergrund" });
+  const setCompactUi = (on: boolean) => {
+    if (on === compactOn) return;
+    compactOn = on;
+    document.body.classList.toggle("compact", on);
+    // Im Browser (Mock) lässt sich das Fenster nicht verkleinern – Kasten in Zielgrösse zeigen
+    if (!isTauri) document.body.classList.toggle("compact-sim", on);
+    compactBtn.textContent = on ? "Normal" : "Kompakt";
+    compactBtn.title = on ? "Zurück zur normalen Ansicht (vorherige Grösse und Position)" : "Kompaktmodus: kleines Fenster, immer im Vordergrund";
+    // Timer der verdeckten Seite pausieren bzw. wieder starten
+    if (on) {
+      if (currentView) lifecycle[currentView]?.deactivate?.();
+      compact.activate();
+    } else {
+      compact.deactivate();
+      if (currentView) lifecycle[currentView]?.activate();
+    }
+  };
+  const setCompact = (on: boolean) =>
+    backend
+      .setCompact(on)
+      .then(setCompactUi)
+      .catch((e) => status(errorText(e), "error"));
+  compactBtn.addEventListener("click", () => void setCompact(!compactOn));
+  events.compact.on(setCompactUi); // auch vom Tray-Menü
 
   // Seitenleiste als Textmenü: aktiver Punkt mit ">" markiert.
   const navItems = new Map<ViewId, { btn: HTMLButtonElement; marker: HTMLElement }>();
   const show = (id: ViewId) => {
-    if (currentView !== id) {
+    // Im Kompaktmodus heisst „Seite zeigen“: zurück zur normalen Ansicht.
+    // Die Timer startet dann setCompactUi(false) für die neue Seite.
+    const leavingCompact = compactOn;
+    if (currentView !== id && !leavingCompact) {
       if (currentView) lifecycle[currentView]?.deactivate?.();
       lifecycle[id]?.activate();
     }
     currentView = id;
+    if (leavingCompact) void setCompact(false);
     for (const [key, el] of Object.entries(views)) el.hidden = key !== id;
     for (const [key, { btn, marker }] of navItems) {
       const active = key === id;
@@ -134,6 +170,24 @@ function main(): void {
       run: () => show(n.id),
     })),
   );
+  registerCommands([
+    {
+      id: "app.compact.on",
+      title: "Kompaktmodus einschalten",
+      category: "EINSTELLUNG",
+      keywords: "klein fenster vordergrund mini",
+      visible: () => !compactOn,
+      run: () => setCompact(true),
+    },
+    {
+      id: "app.compact.off",
+      title: "Kompaktmodus beenden",
+      category: "EINSTELLUNG",
+      keywords: "normal gross fenster",
+      visible: () => compactOn,
+      run: () => setCompact(false),
+    },
+  ]);
   registerCommand({
     id: "app.reload",
     title: "Neu laden",
@@ -163,7 +217,7 @@ function main(): void {
     }),
   );
 
-  app.append(buildHeader(), sidebar, mainEl, createConsole(), createStatusbar());
+  app.append(buildHeader(compactBtn), sidebar, mainEl, createConsole(), createStatusbar());
 
   // Start-Ansicht: aus den Einstellungen oder die zuletzt verwendete
   const saved = (settings.startView === "last" ? prefs.get("view", "overview") : settings.startView) as ViewId;
@@ -234,6 +288,8 @@ function main(): void {
     const [notice] = await Promise.all([loadConfig(), refreshAll()]);
     if (notice) status(notice, "error");
     initUpdates(); // gemerkten Update-Hinweis zeigen, ggf. still prüfen (max. 1× pro 24 h)
+    // Falls der WebView neu geladen wurde, während das Fenster kompakt war
+    setCompactUi(await backend.getCompact().catch(() => false));
   });
 }
 
