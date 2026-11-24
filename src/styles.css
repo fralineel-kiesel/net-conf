@@ -288,6 +288,9 @@ p {
 .adapter > .panel-title {
   max-width: calc(100% - 25ch);
 }
+.adapter.primary > .panel-title {
+  max-width: calc(100% - 34ch); /* zusätzlich [PRIMÄR] */
+}
 .panel-right {
   right: 1ch;
 }
@@ -497,6 +500,56 @@ p {
   color: var(--bright);
 }
 
+/* ---------- Übersicht: ASCII-Titel und Schnellüberblick ------------------ */
+
+/* Die Übersicht ist ein Container: Titel und oberes Raster reagieren auf
+   die Breite des Hauptbereichs, nicht auf die Fensterbreite. */
+.overview {
+  container: overview / inline-size;
+}
+.title-block {
+  margin-bottom: 12px;
+}
+.title-block > p {
+  margin-top: 4px;
+}
+.ascii-title {
+  margin: 0;
+  font: inherit; /* <pre> würde sonst eine eigene Schrift(grösse) nehmen */
+  line-height: 1.15; /* etwas dichter, damit die Buchstaben zusammenhängen */
+  color: var(--bright);
+  white-space: pre; /* nie umbrechen – sonst zerfällt die ASCII-Art */
+  overflow: hidden;
+}
+.title-compact {
+  display: none;
+}
+/* Zu schmal für die 50 Zeichen breite ASCII-Art → einzeilige Variante */
+@container overview (max-width: 56ch) {
+  .ascii-title {
+    display: none;
+  }
+  .title-compact {
+    display: block;
+  }
+}
+/* SYSTEM (breiter) und ÖFFENTLICHE IP nebeneinander, schmal untereinander */
+.top-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px 2ch;
+  margin-bottom: 20px;
+}
+@container overview (max-width: 84ch) {
+  .top-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Kurze Labels ("IPv4") – schmalere Label-Spalte */
+.kv-compact .kv-row {
+  grid-template-columns: 7ch 3ch minmax(0, 1fr);
+}
+
 /* ---------- Aktionen ------------------------------------------------------- */
 
 .note {
@@ -614,9 +667,6 @@ p {
 }
 .tinput-short {
   width: 28ch;
-}
-.public-ip {
-  margin-bottom: 12px;
 }
 
 /* Farbvorschau bei den Akzentfarben: Beschriftung in der jeweiligen Farbe */
