@@ -16,6 +16,8 @@ import { createOverview } from "./views/overview";
 import { createSettings } from "./views/settings";
 import { createTables } from "./views/tables";
 import { createTests } from "./views/tests";
+import { createTraffic } from "./views/traffic";
+import { createWifi } from "./views/wifi";
 
 const NAV: { id: ViewId; label: string; key: string }[] = [
   { id: "overview", label: "Übersicht", key: "F1" },
@@ -23,7 +25,9 @@ const NAV: { id: ViewId; label: string; key: string }[] = [
   { id: "tests", label: "Tests", key: "F3" },
   { id: "tables", label: "Tabellen", key: "F4" },
   { id: "lan", label: "LAN", key: "F6" },
-  // F7 WLAN, F8 Traffic, F9 Werkzeuge sind für später reserviert (siehe CLAUDE.md)
+  { id: "wifi", label: "WLAN", key: "F7" },
+  { id: "traffic", label: "Traffic", key: "F8" },
+  // F9 Werkzeuge ist für später reserviert (siehe CLAUDE.md)
   { id: "settings", label: "Einstellungen", key: "F10" },
 ];
 
@@ -72,22 +76,36 @@ function main(): void {
   const tests = createTests();
   const tables = createTables();
   const lan = createLan();
+  const wifi = createWifi();
+  const traffic = createTraffic();
   const views: Record<ViewId, HTMLElement> = {
     overview: createOverview(),
     actions: createActions(),
     tests: tests.el,
     tables: tables.el,
     lan: lan.el,
+    wifi: wifi.el,
+    traffic: traffic.el,
     settings: createSettings(),
   };
+  // Seiten mit Timern: activate() beim Öffnen, deactivate() beim Verlassen –
+  // so laufen Messungen (WLAN alle 2 s, Traffic jede Sekunde) nur, solange man hinschaut.
+  const lifecycle: Partial<Record<ViewId, { activate(): void; deactivate?(): void }>> = {
+    tables, // Tabellen erst beim ersten Öffnen laden
+    wifi,
+    traffic,
+  };
   const mainEl = h("main", { class: "main" }, ...Object.values(views));
-  let currentView: ViewId = "overview";
+  let currentView: ViewId | null = null;
 
   // Seitenleiste als Textmenü: aktiver Punkt mit ">" markiert.
   const navItems = new Map<ViewId, { btn: HTMLButtonElement; marker: HTMLElement }>();
   const show = (id: ViewId) => {
+    if (currentView !== id) {
+      if (currentView) lifecycle[currentView]?.deactivate?.();
+      lifecycle[id]?.activate();
+    }
     currentView = id;
-    if (id === "tables") tables.activate(); // Tabellen erst beim ersten Öffnen laden
     for (const [key, el] of Object.entries(views)) el.hidden = key !== id;
     for (const [key, { btn, marker }] of navItems) {
       const active = key === id;
@@ -126,8 +144,8 @@ function main(): void {
   const saved = (settings.startView === "last" ? prefs.get("view", "overview") : settings.startView) as ViewId;
   show(saved in views ? saved : "overview");
 
-  // Tastenkürzel: F1–F4, F6 und F10 wechseln den Bereich, F5 lädt neu.
-  // F3 in "Tests" springt zum nächsten Reiter (Ping → … → Monitor), F6 in "LAN" ebenso.
+  // Tastenkürzel: F1–F4, F6–F8 und F10 wechseln den Bereich, F5 lädt neu.
+  // F3 in "Tests" springt zum nächsten Reiter (Ping → … → Monitor), F6 in "LAN" und F8 in "Traffic" ebenso.
   // preventDefault, damit WebView2 nicht die Seite neu lädt (F5) oder Hilfe öffnet (F1).
   document.addEventListener(
     "keydown",
@@ -138,6 +156,7 @@ function main(): void {
       if (dialogOpen()) return;
       if (nav?.id === "tests" && currentView === "tests") tests.next();
       else if (nav?.id === "lan" && currentView === "lan") lan.next();
+      else if (nav?.id === "traffic" && currentView === "traffic") traffic.next();
       else if (nav) show(nav.id);
       else void reload();
     },
