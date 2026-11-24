@@ -41,7 +41,13 @@ export function createLatencyGraph(): LatencyGraph {
 
   let last: { history: (number | null)[]; scaleMax: number } = { history: [], scaleMax: 10 };
 
-  const capacity = () => Math.max(1, Math.floor(canvas.clientWidth / colW));
+  // Unsichtbar (anderer Reiter) ist die Breite 0 – dann die letzte bekannte nehmen,
+  // damit die Skala weiter mit allen sichtbaren Werten rechnet.
+  let lastCap = 60;
+  const capacity = () => {
+    if (canvas.clientWidth > 0) lastCap = Math.max(1, Math.floor(canvas.clientWidth / colW));
+    return lastCap;
+  };
 
   const render = (history: (number | null)[], scaleMax: number) => {
     last = { history, scaleMax };
