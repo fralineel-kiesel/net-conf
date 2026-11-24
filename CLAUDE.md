@@ -99,7 +99,9 @@ Verboten:
 - Fettdruck, mehrere Schriftgrössen, Letter-Spacing.
 
 Farben (nur über CSS-Variablen in `src/styles.css`):
-- Hintergrund fast schwarz `--bg #0b0e12`, Schrift hellgrau `--text`.
+- Hintergrund reines Schwarz `--bg #000000` (OLED), Schrift hellgrau `--text`.
+  Flächen/Linien neutral grau ohne Blaustich (`--bar #161616`, `--line #2a2a2a`).
+  Fensterfarbe beim Start (`backgroundColor` in `tauri.conf.json`) ebenfalls `#000000`.
 - Labels gedimmt `--dim`, Werte/Titel hell `--bright`.
 - **Eine** Akzentfarbe, Standard Cyan `--accent #22d3ee` – NUR für Interaktives (Hover, Fokus, aktiver Menüpunkt, Auswahl).
   In den Einstellungen wählbar (Cyan, Bernstein, Magenta, Blau, Weiss) – **nie Grün/Rot**. Das Logo bleibt immer Cyan.
@@ -190,6 +192,7 @@ Regeln:
   Knoten (oben links, oben rechts, unten) durch gerade, dicke Linien.
 - Alle Knoten sind **Quadrate** (Pixel-Look), gefüllt. Cyan `#22D3EE` auf `#0B0E12`.
 - Hintergrund: Quadrat mit minimaler Rundung (rx 80 von 1024 ≈ 8 %). Kein Glow, kein Verlauf, kein heller Rand.
+  In der Kopfzeile färbt CSS dieses Quadrat auf `--bg` um (unsichtbar auf Schwarz); die Icons bleiben unverändert.
 - Muss bei 16×16 und 32×32 lesbar bleiben → wenige Elemente, viel Abstand.
 - Quelle: `assets/logo.svg`. Icons neu erzeugen **direkt aus dem SVG**
   (`npx tauri icon assets/logo.svg -o src-tauri/icons`, danach `android/` und `ios/` löschen) –

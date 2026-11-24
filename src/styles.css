@@ -13,9 +13,9 @@
    ========================================================================== */
 
 :root {
-  --bg: #0b0e12; /* fast schwarz */
-  --bar: #1a2029; /* Statusleiste, etwas heller */
-  --line: #2b333d; /* dünne Panel-Linien */
+  --bg: #000000; /* reines Schwarz – auf OLED-Displays sind die Pixel aus */
+  --bar: #161616; /* Statusleiste, etwas heller (neutrales Grau, kein Blaustich) */
+  --line: #2a2a2a; /* dünne Panel-Linien (neutrales Grau) */
   --text: #b8c1cb; /* normale Schrift, hellgrau */
   --dim: #5d6875; /* Labels, Nebensächliches */
   --bright: #eef2f6; /* Werte, Titel */
@@ -150,6 +150,11 @@ p {
   width: 16px;
   height: 16px;
   display: block;
+}
+/* Das Logo-Quadrat (#0B0E12, für die App-Icons) in der Kopfzeile an den
+   schwarzen Hintergrund anpassen – sonst wäre auf OLED ein Kästchen sichtbar. */
+.logo svg > rect:first-of-type {
+  fill: var(--bg);
 }
 
 /* Seitenleiste: Textmenü */
