@@ -40,6 +40,24 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
+      - name: Tag passt zur Version? (nur bei v*-Tags)
+        # Der Update-Hinweis vergleicht die Version der App mit dem Release-Tag –
+        # stimmen sie nicht überein, würde die App ewig ein "Update" melden.
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $tag = $env:TAG.TrimStart('v')
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $conf = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($tag -ne $pkg -or $tag -ne $conf -or $tag -ne $cargo) {
+            Write-Error "Tag v$tag passt nicht: package.json=$pkg, tauri.conf.json=$conf, Cargo.toml=$cargo"
+            exit 1
+          }
+          Write-Host "Version $tag stimmt in allen drei Dateien."
+
       - name: npm-Abhängigkeiten installieren
         run: npm ci
 
@@ -85,3 +103,6 @@ jobs:
         with:
           files: release/*.exe
           generate_release_notes: true
+          # Tags mit Bindestrich (z. B. v1.0.0-beta.1) werden als Vorabversion markiert –
+          # die zählen beim Update-Hinweis nicht ("releases/latest" ignoriert sie).
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -228,7 +228,7 @@ export function createProfiles(): ProfilesView {
             cell: (p) =>
               h(
                 "button",
-                { class: "pick", type: "button", title: "Profil bearbeiten", onclick: () => loadForm(p) },
+                { class: "pick", type: "button", title: `${p.name} bearbeiten`, onclick: () => loadForm(p) },
                 `${p.name === selected ? "> " : "  "}${p.name}`,
               ),
           },
@@ -237,7 +237,8 @@ export function createProfiles(): ProfilesView {
           {
             title: "IPv4",
             width: "19ch",
-            cell: (p) => (p.mode === "dhcp" ? h("span", { class: "dim" }, "automatisch") : `${p.ipv4}/${maskToPrefix(p.subnet) ?? "?"}`),
+            cell: (p) =>
+              p.mode === "dhcp" ? h("span", { class: "dim ellipsis" }, "automatisch") : `${p.ipv4}/${maskToPrefix(p.subnet) ?? "?"}`,
           },
           { title: "Gateway", width: "15ch", cell: (p) => p.gateway || h("span", { class: "dim" }, "–") },
           {
@@ -246,7 +247,7 @@ export function createProfiles(): ProfilesView {
             cell: (p) =>
               p.dns1
                 ? h("span", { class: "ellipsis" }, [p.dns1, p.dns2].filter(Boolean).join(", "))
-                : h("span", { class: "dim" }, p.mode === "dhcp" ? "automatisch" : "–"),
+                : h("span", { class: "dim ellipsis" }, p.mode === "dhcp" ? "automatisch" : "–"),
           },
         ],
         list,
@@ -471,6 +472,16 @@ export function createProfiles(): ProfilesView {
     renderForm();
   });
   onStateChange(() => {
+    // Adapterliste kam erst nach dem Profil (Start) oder Adapter wieder da → jetzt zuordnen
+    if (missing) {
+      const m = missing;
+      const a = state.adapters.find((x) => (m.mac ? x.mac === m.mac : x.name === m.name));
+      if (a) {
+        missing = null;
+        renderAdapters();
+        adapterSel.value = a.id;
+      }
+    }
     renderAdapters();
     renderForm();
   });

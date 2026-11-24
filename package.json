@@ -1,7 +1,7 @@
 {
   "name": "net-conf",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
-    "test": "node --experimental-strip-types --no-warnings scripts/pingscale.test.ts && node --experimental-strip-types --no-warnings scripts/health.test.ts && node --experimental-strip-types --no-warnings scripts/traffic.test.ts && node --experimental-strip-types --no-warnings scripts/subnet.test.ts && node --experimental-strip-types --no-warnings scripts/theme.test.ts && node --experimental-strip-types --no-warnings scripts/fuzzy.test.ts"
+    "test": "node --experimental-strip-types --no-warnings scripts/pingscale.test.ts && node --experimental-strip-types --no-warnings scripts/health.test.ts && node --experimental-strip-types --no-warnings scripts/traffic.test.ts && node --experimental-strip-types --no-warnings scripts/subnet.test.ts && node --experimental-strip-types --no-warnings scripts/theme.test.ts && node --experimental-strip-types --no-warnings scripts/fuzzy.test.ts && node --experimental-strip-types --no-warnings scripts/update.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.5"
